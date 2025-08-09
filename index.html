@@ -166,8 +166,8 @@
         // Mock input for desktop testing (use gamepad API in VR)
         window.addEventListener('keydown', (e) => {
             // For testing without VR: WASD movement, space jump, arrow keys turn
-            if (e.key === 'w') leftThumbstick.y = 1;
-            if (e.key === 's') leftThumbstick.y = -1;
+            if (e.key === 'w') leftThumbstick.y = -1; // Adjusted for forward
+            if (e.key === 's') leftThumbstick.y = 1;
             if (e.key === 'a') leftThumbstick.x = -1;
             if (e.key === 'd') leftThumbstick.x = 1;
             if (e.key === 'ArrowLeft') rightThumbstick.x = -1;
@@ -191,11 +191,11 @@
                         const axes = source.gamepad.axes;
                         if (index === 0) { // Left controller
                             leftThumbstick.x = axes[2] || 0; // Thumbstick horizontal
-                            leftThumbstick.y = axes[3] || 0; // Thumbstick vertical
+                            leftThumbstick.y = axes[3] || 0; // Thumbstick vertical (negative for forward)
                         } else if (index === 1) { // Right controller
                             rightThumbstick.x = axes[2] || 0; // Thumbstick horizontal for turn
-                            // A button for jump (button[2] for A on right Quest controller)
-                            jumpPressed = source.gamepad.buttons[2]?.pressed || false;
+                            // A button for jump (button[4] for A on right Quest controller)
+                            jumpPressed = source.gamepad.buttons[4]?.pressed || false;
                         }
                     }
                 });
@@ -209,7 +209,7 @@
             onXRFrame();
 
             // Movement (horizontal in camera XZ plane)
-            direction.z = -leftThumbstick.y; // Forward/back
+            direction.z = leftThumbstick.y; // Forward/back (y negative for forward -> z negative)
             direction.x = leftThumbstick.x; // Strafe
             direction.normalize();
             direction.applyQuaternion(camera.quaternion);
@@ -217,7 +217,7 @@
             velocity.z = direction.z * moveSpeed;
 
             // Turning (smooth turn with right thumbstick)
-            playerGroup.rotation.y -= rightThumbstick.x * 0.05; // Rotate speed
+            playerGroup.rotation.y -= rightThumbstick.x * 0.05; // Rotate speed (adjust sign if needed)
 
             // Jumping and gravity
             if (playerGroup.position.y > 0) {
