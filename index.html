@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-    <title>Halo-Style WebXR Shooter</title>
-    <style>
-        body { margin: 0; }
-        canvas { display: block; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Halo-Style WebXR Shooter</title>
+  <style>
+    body { margin: 0; }
+    canvas { display: block; }
+  </style>
 </head>
 <body>
 <script type="module">
@@ -35,12 +35,11 @@ scene.add(dirLight);
 
 // --- Player rig ---
 const playerGroup = new THREE.Group();
-// Spawn auf dem Dach wie bisher
 playerGroup.position.set(0, 3.25 + 1.6, 0);
 scene.add(playerGroup);
 playerGroup.add(camera);
 
-// Spartan-„Body“ (einfach)
+// Spartan-„Body“
 const playerBody = new THREE.Mesh(
   new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
   new THREE.MeshStandardMaterial({ color: 0x006400 })
@@ -56,7 +55,7 @@ const gripLeft  = renderer.xr.getControllerGrip(0);
 const gripRight = renderer.xr.getControllerGrip(1);
 playerGroup.add(gripLeft, gripRight);
 
-// „Gun“ an die linke Hand (wie gehabt)
+// „Gun“
 const gun = new THREE.Mesh(
   new THREE.BoxGeometry(0.1,0.1,0.5),
   new THREE.MeshStandardMaterial({ color: 0x808080 })
@@ -64,47 +63,32 @@ const gun = new THREE.Mesh(
 gun.position.set(0,-0.1,-0.3);
 controllerLeft.add(gun);
 
-// --- Level: Boden, Hindernisse, Festung ---
-// Cache für statische Boxen + explizit begehbare Meshes
+// --- Level helpers ---
 const staticColliders = []; // { obj, box }
-const walkableMeshes  = []; // echte Oberflächen, auf denen gelandet werden darf
+const walkableMeshes  = [];
 
 function addStaticCollider(obj){
   const box = new THREE.Box3().setFromObject(obj);
   staticColliders.push({ obj, box });
 }
-function addWalkable(obj){
-  walkableMeshes.push(obj);
-}
+function addWalkable(obj){ walkableMeshes.push(obj); }
 
+// --- Ground ---
 const groundGeometry = new THREE.PlaneGeometry(20,20,20,20);
 groundGeometry.rotateX(-Math.PI/2);
-// leichte Unebenheiten
+// Unebenheiten
 const verts = groundGeometry.attributes.position.array;
-for (let i=2; i<verts.length; i+=3) {
-  verts[i] += Math.random()*0.5 - 0.25;
-}
+for (let i=2; i<verts.length; i+=3) verts[i] += Math.random()*0.5 - 0.25;
 groundGeometry.attributes.position.needsUpdate = true;
 groundGeometry.computeVertexNormals();
+
 const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, side: THREE.DoubleSide });
 const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 scene.add(ground);
 addStaticCollider(ground);
 addWalkable(ground);
 
-// Hindernisse (graue Blöcke → begehbar!)
-for (let i=0; i<10; i++){
-  const w = new THREE.Mesh(
-    new THREE.BoxGeometry(Math.random()*2+1, Math.random()*2+1, Math.random()*2+1),
-    new THREE.MeshStandardMaterial({ color: 0xA9A9A9 })
-  );
-  w.position.set(Math.random()*20-10, w.geometry.parameters.height/2, Math.random()*20-10);
-  scene.add(w);
-  addStaticCollider(w);
-  addWalkable(w); // oben drauf landen möglich
-}
-
-// Festung
+// --- Fortress (erst Festung, dann Hindernisse!) ---
 const fortressGroup = new THREE.Group();
 const wallMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
 
@@ -142,7 +126,73 @@ fortressGroup.add(interiorFloor); addStaticCollider(interiorFloor); addWalkable(
 
 scene.add(fortressGroup);
 
-// Himmel + Halo-Ring
+// --- No-Spawn-Zonen definieren ---
+// 1) gesamte Festung inkl. etwas „Luft“
+// 2) Korridor vor dem Tor (damit der Eingang frei bleibt)
+const forbiddenZones = [
+  // Festungs-Footprint (x,z ≈ ±2.5), y bis über Dach
+  new THREE.Box3(
+    new THREE.Vector3(-2.7, 0.0, -2.7),
+    new THREE.Vector3( 2.7, 4.5,  2.9)
+  ),
+  // Tor-Korridor vor der Festung (zentriert bei z≈2.5, Breite ~2m)
+  new THREE.Box3(
+    new THREE.Vector3(-1.2, 0.0,  1.2),
+    new THREE.Vector3( 1.2, 3.0,  4.0)
+  )
+];
+
+// --- Hindernisse (NACH Festung, mit Avoid-Spawn) ---
+function intersectsForbidden(box){
+  for (const forb of forbiddenZones){
+    if (box.intersectsBox(forb)) return true;
+  }
+  return false;
+}
+
+function placeBlockAvoiding(block, attempts = 60){
+  const size = block.geometry.parameters; // {width,height,depth}
+  const hx = (size.width  || 1)/2;
+  const hy = (size.height || 1)/2;
+  const hz = (size.depth  || 1)/2;
+
+  for (let i=0; i<attempts; i++){
+    const x = Math.random()*20 - 10;
+    const z = Math.random()*20 - 10;
+    const y = hy; // auf Boden stellen
+
+    const min = new THREE.Vector3(x - hx, 0, z - hz);
+    const max = new THREE.Vector3(x + hx, y*2, z + hz);
+    const candidate = new THREE.Box3(min, max);
+
+    if (!intersectsForbidden(candidate)){
+      block.position.set(x, y, z);
+      return true;
+    }
+  }
+  return false; // not found (selten)
+}
+
+for (let i=0; i<10; i++){
+  const w = new THREE.Mesh(
+    new THREE.BoxGeometry(Math.random()*2+1, Math.random()*2+1, Math.random()*2+1),
+    new THREE.MeshStandardMaterial({ color: 0xA9A9A9 })
+  );
+
+  // positionieren mit Verbotzonen-Check
+  const ok = placeBlockAvoiding(w);
+  if (!ok){
+    // Fallback: setze weit außen ab
+    w.position.set(12 + Math.random()*6, (w.geometry.parameters.height||1)/2, 12 + Math.random()*6);
+  }
+
+  scene.add(w);
+  // Collider NACH finaler Position berechnen:
+  addStaticCollider(w);
+  addWalkable(w);
+}
+
+// --- Sky + Ring ---
 const sky = new THREE.Mesh(
   new THREE.SphereGeometry(500,32,32),
   new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide })
@@ -160,11 +210,10 @@ scene.add(haloRing);
 let moveAxis = {x:0, y:0}, turnAxis = {x:0, y:0};
 let jumpPressed = false;
 
-// Waffen/Feuer Eingaben
 let fireHeld = false;
-let rightBWasPressed = false; // für XR-Waffenwechsel (B-Button Heuristik)
+let rightBWasPressed = false;
 
-// Tastatur
+// Keyboard
 window.addEventListener('keydown', (e)=>{
   if (e.key==='w') moveAxis.y = -1;
   if (e.key==='s') moveAxis.y =  1;
@@ -174,7 +223,6 @@ window.addEventListener('keydown', (e)=>{
   if (e.key==='ArrowRight') turnAxis.x =  1;
   if (e.key===' ') { jumpPressed = true; fireHeld = true; }
 
-  // Waffenwechsel per Tastatur
   if (e.key === '1') currentWeapon = 0;
   if (e.key === '2') currentWeapon = 1;
 });
@@ -185,7 +233,7 @@ window.addEventListener('keyup', (e)=>{
   if (e.key===' ') { jumpPressed = false; fireHeld = false; }
 });
 
-// XR-Input
+// XR
 function readXRInput(session){
   moveAxis.x = moveAxis.y = 0;
   turnAxis.x = turnAxis.y = 0;
@@ -200,18 +248,13 @@ function readXRInput(session){
 
     if (source.handedness === 'left'){
       moveAxis.x = axX; moveAxis.y = axY;
-
-      // Trigger links = feuern (selectstart/selectend setzen fireHeld zusätzlich)
       const triggerPressed = (buttons[0] && buttons[0].pressed) || false;
       if (triggerPressed) fireHeld = true;
 
     } else if (source.handedness === 'right'){
       turnAxis.x = axX; turnAxis.y = axY;
-
-      // A-Button (häufig index 4) = springen (Heuristik)
       jumpPressed = buttons.some((b,i)=> i===4 ? b.pressed : false);
 
-      // B-Button (häufig index 5) = Waffenwechsel (Edge-Detection)
       const bPressed = (buttons[5] && buttons[5].pressed) || false;
       if (bPressed && !rightBWasPressed) {
         currentWeapon = (currentWeapon + 1) % weapons.length;
@@ -225,71 +268,57 @@ function onXRFrame(){
     readXRInput(renderer.xr.getSession());
   }
 }
-
-// Zusätzliche XR-Events für feuern halten/loslassen
 controllerLeft.addEventListener('selectstart', ()=> { fireHeld = true; });
 controllerLeft.addEventListener('selectend',   ()=> { fireHeld = false; });
 
 // --- Movement / Physics ---
-const velocity = new THREE.Vector3();   // NUR für X/Z
+const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 const moveSpeed = 5;
 let playerYRotation = 0;
 
-// Vertikal-Physik (Jump-Fix)
 let vy = 0;
 let grounded = false;
 let coyoteTimer = 0;
-const COYOTE_MAX = 0.1;     // 100 ms Gnadenzeit
-const JUMP = 8;             // Sprung-Impuls
-const GRAV = -9.8 * 0.5;    // halbe Erdanziehung
-const PROBE = 0.25;         // Snap-Distanz
+const COYOTE_MAX = 0.1;
+const JUMP = 8;
+const GRAV = -9.8 * 0.5;
+const PROBE = 0.25;
 
 const downRay = new THREE.Raycaster();
 const downDir = new THREE.Vector3(0,-1,0);
-
-// NEU: Up-Ray für Decken-Kollision
-const upRay = new THREE.Raycaster();
-const upDir = new THREE.Vector3(0,1,0);
+const upRay   = new THREE.Raycaster();
+const upDir   = new THREE.Vector3(0,1,0);
 
 function landIfGroundClose(pos){
-  // leicht oberhalb casten, damit wir zuverlässig treffen
   downRay.set(new THREE.Vector3(pos.x, pos.y + 0.2, pos.z), downDir);
   const hits = downRay.intersectObjects(walkableMeshes, true);
   if (!hits.length) return false;
   const hit = hits[0];
-
-  // Nur beim FALLEN und wenn Boden wirklich nah ist „einrasten“
   if (vy <= 0 && hit.distance <= (0.2 + PROBE)) {
     pos.y = pos.y + 0.2 - hit.distance;
-    vy = 0;
-    grounded = true;
-    coyoteTimer = 0;
+    vy = 0; grounded = true; coyoteTimer = 0;
     return true;
   }
   return false;
 }
-
-// NEU: Decken-Block – verhindert Durchspringen nach oben
 function blockCeiling(pos, dt, playerHeight){
-  if (vy <= 0) return; // nur bei Aufwärtsbewegung
-  // Ray vom alten Kopf (vor der Bewegung) nach oben über die zurückgelegte Strecke
+  if (vy <= 0) return;
   const headOldY = playerGroup.position.y + playerHeight;
   upRay.set(new THREE.Vector3(pos.x, headOldY, pos.z), upDir);
-  upRay.far = (vy * dt) + 0.05; // kleine Toleranz
+  upRay.far = (vy * dt) + 0.05;
   const hits = upRay.intersectObjects(staticColliders.map(e=>e.obj), true);
   if (!hits.length) return;
-
   const hit = hits[0];
   const clampY = hit.point.y - playerHeight;
-  if (pos.y > clampY) pos.y = clampY; // unter die Decke klemmen
-  vy = 0; // Kopf stößt an -> vertikale Geschwindigkeit null
+  if (pos.y > clampY) pos.y = clampY;
+  vy = 0;
 }
 
-// --- Shooting: Schritt B (Waffen + Pool) ---
+// --- Weapons / Bullets ---
 const weapons = [
-  { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10 }, // 10/s
-  { name: 'BR', speed: 28, radius: 0.03, color: 0xff6a00, fireRate: 5  }, // 5/s
+  { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10 },
+  { name: 'BR', speed: 28, radius: 0.03, color: 0xff6a00, fireRate: 5  },
 ];
 let currentWeapon = 0;
 let fireCooldown = 0;
@@ -323,11 +352,11 @@ function releaseBullet(m){
 
 // --- Update ---
 function update(dt){
-  // Turning (smooth; Snap-Turn kommt später als Option)
+  // Turning
   playerYRotation -= turnAxis.x * 0.05;
   playerGroup.rotation.y = playerYRotation;
 
-  // Horizontal movement (lokal)
+  // Move (X/Z)
   if (Math.abs(moveAxis.x) > 0 || Math.abs(moveAxis.y) > 0) {
     direction.set(moveAxis.x, 0, moveAxis.y).normalize();
     const yRot = new THREE.Matrix4().makeRotationY(playerYRotation);
@@ -338,34 +367,24 @@ function update(dt){
     velocity.x = 0; velocity.z = 0;
   }
 
-  // ---- Vertikal: Reihenfolge wichtig ----
+  // Vertical
   if (!grounded) coyoteTimer = Math.max(0, coyoteTimer - dt);
-
-  // Jump (vor Gravity / vor Landen)
   if (jumpPressed && (grounded || coyoteTimer > 0)){
-    vy = JUMP;
-    grounded = false;
-    coyoteTimer = 0;
+    vy = JUMP; grounded = false; coyoteTimer = 0;
   }
-
-  // Gravity
   vy += GRAV * dt;
 
-  // Position vorschlagen
   const newPos = playerGroup.position.clone();
   newPos.x += velocity.x * dt;
   newPos.z += velocity.z * dt;
   newPos.y += vy * dt;
 
-  // --- Kollisionen horizontal (Wände/Hindernisse), Boden/Decken separat ---
   const playerHeight = 1.6;
   const playerRadius = 0.5;
   let finalPos = newPos.clone();
 
-  // Seiten/Decken durch Boxen (statisch gecached) – Roof war bisher ausgenommen,
-  // wir lassen die Decke jetzt vom Up-Ray blocken (siehe unten).
+  // Seiten-Kollisionen (gegen statische Boxen)
   const wallEntries = staticColliders.filter(e => e.obj !== ground && e.obj !== interiorFloor && e.obj !== roof);
-
   for (const { box } of wallEntries){
     const pBox = {
       minX: finalPos.x - playerRadius,
@@ -375,11 +394,8 @@ function update(dt){
       minY: finalPos.y,
       maxY: finalPos.y + playerHeight
     };
-
     if (pBox.maxX > box.min.x && pBox.minX < box.max.x &&
         pBox.maxZ > box.min.z && pBox.minZ < box.max.z){
-
-      // Seiten-Kollision blocken (X/Z), wenn wir in den Bereich schieben
       if (finalPos.y < box.max.y && finalPos.y + playerHeight > box.min.y){
         const oldBox = {
           minX: playerGroup.position.x - playerRadius,
@@ -387,30 +403,20 @@ function update(dt){
           minZ: playerGroup.position.z - playerRadius,
           maxZ: playerGroup.position.z + playerRadius
         };
-        if (!(oldBox.maxX > box.min.x && oldBox.minX < box.max.x)) {
-          finalPos.x = playerGroup.position.x;
-        }
-        if (!(oldBox.maxZ > box.min.z && oldBox.minZ < box.max.z)) {
-          finalPos.z = playerGroup.position.z;
-        }
+        if (!(oldBox.maxX > box.min.x && oldBox.minX < box.max.x)) finalPos.x = playerGroup.position.x;
+        if (!(oldBox.maxZ > box.min.z && oldBox.minZ < box.max.z)) finalPos.z = playerGroup.position.z;
       }
     }
   }
 
-  // *** NEU: Decke blocken, bevor wir Bodenfang machen ***
+  // Decke blocken, dann Bodenfang
   blockCeiling(finalPos, dt, playerHeight);
-
-  // Bodenfang nur beim Fallen & nahe am Boden
   const landed = landIfGroundClose(finalPos);
-  if (!landed && grounded && vy < 0){
-    grounded = false;
-    coyoteTimer = COYOTE_MAX;
-  }
+  if (!landed && grounded && vy < 0){ grounded = false; coyoteTimer = COYOTE_MAX; }
 
-  // Position anwenden
   playerGroup.position.copy(finalPos);
 
-  // --- Schießen (Cooldown + Pool + Waffen-Config) ---
+  // Shooting
   fireCooldown = Math.max(0, fireCooldown - dt);
   if (fireHeld && fireCooldown === 0){
     const w = weapons[currentWeapon];
@@ -428,7 +434,7 @@ function update(dt){
     bullets.push(bullet);
   }
 
-  // --- Bullets updaten (rückwärts iterieren, robust gegen splice) ---
+  // Bullets
   const staticObjs = staticColliders.map(e => e.obj);
   for (let i = bullets.length - 1; i >= 0; i--){
     const b = bullets[i];
@@ -449,7 +455,7 @@ function update(dt){
   }
 }
 
-// --- Animation Loop ---
+// --- Loop ---
 renderer.setAnimationLoop(()=>{
   const dt = Math.min(clock.getDelta(), 1/30);
   onXRFrame();
