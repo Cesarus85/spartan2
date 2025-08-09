@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spartan VR Shooter</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        canvas {
+            display: block;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            z-index: 100;
+        }
+        
+        #startButton {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 40px;
+            font-size: 24px;
+            background: linear-gradient(45deg, #2a5aa0, #4a7bc8);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            z-index: 200;
+        }
+        
+        #startButton:hover {
+            background: linear-gradient(45deg, #4a7bc8, #6a9be8);
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            color: white;
+            text-align: center;
+            z-index: 100;
+            background: rgba(0,0,0,0.5);
+            padding: 20px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <button id="startButton">ENTER VR TRAINING</button>
+    
+    <div id="instructions">
+        <h3>SPARTAN TRAINING PROTOKOLL</h3>
+        <p><strong>Linker Controller:</strong> Thumbstick = Bewegung, Trigger = Feuern</p>
+        <p><strong>Rechter Controller:</strong> Thumbstick = Drehen, A-Taste = Springen</p>
+        <p>Ziel: Überlebe das Training und erkunde die Festung</p>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
