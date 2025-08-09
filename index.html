@@ -8,12 +8,13 @@
         body { margin: 0; }
         canvas { display: block; }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.167.1/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.167.1/examples/jsm/webxr/VRButton.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.167.1/examples/jsm/loaders/GLTFLoader.js"></script>
 </head>
 <body>
-    <script>
+    <script type="module">
+        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.179.0/build/three.module.min.js';
+        import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.179.0/examples/jsm/webxr/VRButton.js';
+        // Removed GLTFLoader since it's not used; can add later if needed for models
+
         // Basic setup for WebXR with Three.js
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -21,7 +22,7 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
         document.body.appendChild(renderer.domElement);
-        document.body.appendChild(THREE.VRButton.createButton(renderer));
+        document.body.appendChild(VRButton.createButton(renderer));
 
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
