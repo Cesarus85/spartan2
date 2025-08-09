@@ -28,10 +28,9 @@ document.body.appendChild(VRButton.createButton(renderer));
 const clock = new THREE.Clock();
 
 // --- Mini-Grafik-Pass ---
-scene.fog = new THREE.Fog(0x88b7e0, 20, 120); // dezent
+scene.fog = new THREE.Fog(0x88b7e0, 20, 120);
 const hemi = new THREE.HemisphereLight(0xbfd7ff, 0x403020, 0.7);
 scene.add(hemi);
-
 scene.add(new THREE.AmbientLight(0xffffff, 0.35));
 const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
 dirLight.position.set(5,12,6);
@@ -43,6 +42,7 @@ playerGroup.position.set(0, 3.25 + 1.6, 0);
 scene.add(playerGroup);
 playerGroup.add(camera);
 
+// „Body“
 const playerBody = new THREE.Mesh(
   new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
   new THREE.MeshStandardMaterial({ color: 0x006400 })
@@ -50,7 +50,7 @@ const playerBody = new THREE.Mesh(
 playerBody.position.y = -1.6;
 playerGroup.add(playerBody);
 
-// Controller + Grips
+// Controller
 const controllerLeft  = renderer.xr.getController(0);
 const controllerRight = renderer.xr.getController(1);
 playerGroup.add(controllerLeft, controllerRight);
@@ -75,7 +75,7 @@ function addWalkable(obj){ walkableMeshes.push(obj); }
 // --- Ground ---
 const groundGeometry = new THREE.PlaneGeometry(20,20,20,20);
 groundGeometry.rotateX(-Math.PI/2);
-// leichte Unebenheiten + minimaler Farbverlauf
+// leichte Unebenheiten
 const verts = groundGeometry.attributes.position.array;
 for (let i=2; i<verts.length; i+=3) verts[i] += Math.random()*0.5 - 0.25;
 groundGeometry.attributes.position.needsUpdate = true;
@@ -127,27 +127,25 @@ scene.add(fortressGroup);
 
 // --- No-Spawn-Zonen (Fortress + Tor-Korridor) ---
 const forbiddenZones = [
-  new THREE.Box3(new THREE.Vector3(-2.7,0.0,-2.7), new THREE.Vector3(2.7,4.5,2.9)),
-  new THREE.Box3(new THREE.Vector3(-1.2,0.0, 1.2), new THREE.Vector3(1.2,3.0,4.0))
+  new THREE.Box3(new THREE.Vector3(-2.7,0.0,-2.7), new THREE.Vector3( 2.7,4.5,2.9)),
+  new THREE.Box3(new THREE.Vector3(-1.2,0.0, 1.2), new THREE.Vector3( 1.2,3.0,4.0))
 ];
 
-function intersectsForbidden(box){ for (const f of forbiddenZones){ if (box.intersectsBox(f)) return true; } return false; }
-function placeBlockAvoiding(block, attempts=60){
-  const size = block.geometry.parameters; const hx=(size.width||1)/2, hy=(size.height||1)/2, hz=(size.depth||1)/2;
-  for (let i=0;i<attempts;i++){
-    const x = Math.random()*20-10, z = Math.random()*20-10, y = hy;
-    const candidate = new THREE.Box3(new THREE.Vector3(x-hx,0,z-hz), new THREE.VectorVector3?.noop);
+function intersectsForbidden(box){
+  for (const f of forbiddenZones){
+    if (box.intersectsBox(f)) return true;
   }
+  return false;
 }
 
-// (kleiner Fix: VectorVector3?.noop existiert nicht – richtige impl unten)
+// Platzierung mit Verbotszonen
 function placeBlock(block, attempts=60){
   const size = block.geometry.parameters;
   const hx=(size.width||1)/2, hy=(size.height||1)/2, hz=(size.depth||1)/2;
   for (let i=0;i<attempts;i++){
     const x = Math.random()*20-10;
     const z = Math.random()*20-10;
-    const y = hy;
+    const y = hy; // auf den Boden stellen
     const min = new THREE.Vector3(x-hx, 0,   z-hz);
     const max = new THREE.Vector3(x+hx, y*2, z+hz);
     const candidate = new THREE.Box3(min, max);
@@ -159,7 +157,7 @@ function placeBlock(block, attempts=60){
   return false;
 }
 
-// Hindernisse
+// Hindernisse (graue Blöcke → begehbar)
 for (let i=0; i<10; i++){
   const w = new THREE.Mesh(
     new THREE.BoxGeometry(Math.random()*2+1, Math.random()*2+1, Math.random()*2+1),
@@ -211,7 +209,7 @@ window.addEventListener('keydown', (e)=>{
   if (e.key === '1') currentWeapon = 0;
   if (e.key === '2') currentWeapon = 1;
 
-  if (e.key.toLowerCase() === 't') snapTurnEnabled = !snapTurnEnabled; // Toggle
+  if (e.key.toLowerCase() === 't') snapTurnEnabled = !snapTurnEnabled;
 });
 window.addEventListener('keyup', (e)=>{
   if (e.key==='w' || e.key==='s') moveAxis.y = 0;
@@ -221,7 +219,7 @@ window.addEventListener('keyup', (e)=>{
 });
 
 // XR
-let rightStickClickPrev = false; // für Snap-Toggle
+let rightStickClickPrev = false;
 function readXRInput(session){
   moveAxis.x = moveAxis.y = 0;
   turnAxis.x = turnAxis.y = 0;
@@ -451,3 +449,4 @@ function onXRFrame(){
 </script>
 </body>
 </html>
+
