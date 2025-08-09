@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
     <title>Halo-Style WebXR Shooter</title>
     <style>
         body { margin: 0; }
@@ -10,400 +10,369 @@
     </style>
 </head>
 <body>
-    <script type="module">
-        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.179.0/build/three.module.min.js';
-        import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.179.0/examples/jsm/webxr/VRButton.js';
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.179.0/build/three.module.min.js';
+import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.179.0/examples/jsm/webxr/VRButton.js';
 
-        // Basic setup for WebXR with Three.js
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.xr.enabled = true;
-        document.body.appendChild(renderer.domElement);
-        document.body.appendChild(VRButton.createButton(renderer));
+// --- Renderer / Scene / Camera ---
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer));
+const clock = new THREE.Clock();
 
-        // Clock for delta time
-        const clock = new THREE.Clock();
+// --- Lights ---
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+dirLight.position.set(5,10,5);
+scene.add(dirLight);
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-        directionalLight.position.set(5, 10, 5);
-        scene.add(directionalLight);
+// --- Player rig ---
+const playerGroup = new THREE.Group();
+// Spawn auf dem Dach wie bisher
+playerGroup.position.set(0, 3.25 + 1.6, 0);
+scene.add(playerGroup);
+playerGroup.add(camera);
 
-        // Player setup (rig for locomotion)
-        const playerGroup = new THREE.Group();
-        playerGroup.position.set(0, 3.25 + 1.6, 0); // Spawn on top of fortress roof
-        scene.add(playerGroup);
-        // Camera is added to playerGroup; XR will update its local matrix
-        playerGroup.add(camera);
-        // No manual camera.position set; XR handles head height
+// Spartan-„Body“ (einfach)
+const playerBody = new THREE.Mesh(
+  new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
+  new THREE.MeshStandardMaterial({ color: 0x006400 })
+);
+playerBody.position.y = -1.6;
+playerGroup.add(playerBody);
 
-        // Simplified Spartan body (positioned below camera - adjust based on head height)
-        const playerBody = new THREE.Mesh(
-            new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
-            new THREE.MeshStandardMaterial({ color: 0x006400 }) // Green Spartan armor color
-        );
-        playerBody.position.y = -1.6; // Approximate below head
-        playerGroup.add(playerBody);
+// Controller + Grips
+const controllerLeft  = renderer.xr.getController(0);
+const controllerRight = renderer.xr.getController(1);
+playerGroup.add(controllerLeft, controllerRight);
+const gripLeft  = renderer.xr.getControllerGrip(0);
+const gripRight = renderer.xr.getControllerGrip(1);
+playerGroup.add(gripLeft, gripRight);
 
-        // Controllers added to playerGroup so they move with locomotion
-        const controller1 = renderer.xr.getController(0); // Left controller
-        const controller2 = renderer.xr.getController(1); // Right controller
-        playerGroup.add(controller1);
-        playerGroup.add(controller2);
+// „Gun“ an die linke Hand (wie gehabt)
+const gun = new THREE.Mesh(
+  new THREE.BoxGeometry(0.1,0.1,0.5),
+  new THREE.MeshStandardMaterial({ color: 0x808080 })
+);
+gun.position.set(0,-0.1,-0.3);
+controllerLeft.add(gun);
 
-        // Gun in left hand (simplified as a box for Master Chief's assault rifle)
-        const gunGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.5);
-        const gunMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
-        const gun = new THREE.Mesh(gunGeometry, gunMaterial);
-        gun.position.set(0, -0.1, -0.3); // Position in hand
-        // Rotated so the long side (barrel) points forward
-        gun.rotation.x = 0;
-        gun.rotation.y = 0;
-        gun.rotation.z = 0;
-        controller1.add(gun);
+// --- Level: Boden, Hindernisse, Festung ---
+const collidableObjects = [];
 
-        // Store all collidable objects
-        const collidableObjects = [];
+const groundGeometry = new THREE.PlaneGeometry(20,20,20,20);
+groundGeometry.rotateX(-Math.PI/2);
+// leichte Unebenheiten
+const verts = groundGeometry.attributes.position.array;
+for (let i=2; i<verts.length; i+=3) {
+  verts[i] += Math.random()*0.5 - 0.25;
+}
+groundGeometry.attributes.position.needsUpdate = true;
+groundGeometry.computeVertexNormals();
+const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, side: THREE.DoubleSide });
+const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+scene.add(ground);
 
-        // Shooting mechanics
-        let bullets = [];
-        controller1.addEventListener('selectstart', () => {
-            // Fire bullet on left trigger
-            const bullet = new THREE.Mesh(
-                new THREE.SphereGeometry(0.05, 8, 8),
-                new THREE.MeshBasicMaterial({ color: 0xff0000 })
-            );
-            bullet.position.copy(controller1.getWorldPosition(new THREE.Vector3()));
-            bullet.quaternion.copy(controller1.getWorldQuaternion(new THREE.Quaternion()));
-            const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(bullet.quaternion);
-            bullet.velocity = direction.multiplyScalar(10); // Speed
-            scene.add(bullet);
-            bullets.push(bullet);
-        });
+// Hindernisse
+for (let i=0; i<10; i++){
+  const w = new THREE.Mesh(
+    new THREE.BoxGeometry(Math.random()*2+1, Math.random()*2+1, Math.random()*2+1),
+    new THREE.MeshStandardMaterial({ color: 0xA9A9A9 })
+  );
+  w.position.set(Math.random()*20-10, w.geometry.parameters.height/2, Math.random()*20-10);
+  scene.add(w);
+  collidableObjects.push(w);
+}
 
-        // Map: 20x20 ground plane with some unevenness and obstacles
-        const groundGeometry = new THREE.PlaneGeometry(20, 20, 20, 20);
-        groundGeometry.rotateX(-Math.PI / 2);
-        // Add some height variation
-        const vertices = groundGeometry.attributes.position.array;
-        for (let i = 2; i < vertices.length; i += 3) {
-            vertices[i] += Math.random() * 0.5 - 0.25; // Small hills/valleys
+// Festung
+const fortressGroup = new THREE.Group();
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+
+const wall1Left = new THREE.Mesh(new THREE.BoxGeometry(1.5,3,0.5), wallMat);
+wall1Left.position.set(-1.75,1.5,2.5);
+fortressGroup.add(wall1Left); collidableObjects.push(wall1Left);
+
+const wall1Right = new THREE.Mesh(new THREE.BoxGeometry(1.5,3,0.5), wallMat);
+wall1Right.position.set(1.75,1.5,2.5);
+fortressGroup.add(wall1Right); collidableObjects.push(wall1Right);
+
+const lintel = new THREE.Mesh(new THREE.BoxGeometry(2,0.5,0.5), wallMat);
+lintel.position.set(0,2.75,2.5);
+fortressGroup.add(lintel); collidableObjects.push(lintel);
+
+const wallBack = new THREE.Mesh(new THREE.BoxGeometry(5,3,0.5), wallMat);
+wallBack.position.set(0,1.5,-2.5);
+fortressGroup.add(wallBack); collidableObjects.push(wallBack);
+
+const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(0.5,3,5), wallMat);
+wallLeft.position.set(2.5,1.5,0);
+fortressGroup.add(wallLeft); collidableObjects.push(wallLeft);
+
+const wallRight = new THREE.Mesh(new THREE.BoxGeometry(0.5,3,5), wallMat);
+wallRight.position.set(-2.5,1.5,0);
+fortressGroup.add(wallRight); collidableObjects.push(wallRight);
+
+const roof = new THREE.Mesh(new THREE.BoxGeometry(5,0.5,5), wallMat);
+roof.position.set(0,3.25,0);
+fortressGroup.add(roof); collidableObjects.push(roof);
+
+const interiorFloor = new THREE.Mesh(new THREE.BoxGeometry(4,0.1,4), groundMaterial);
+interiorFloor.position.set(0,0.05,0);
+fortressGroup.add(interiorFloor); collidableObjects.push(interiorFloor);
+
+scene.add(fortressGroup);
+
+// Boden gehört auch zu den möglichen Treffern
+collidableObjects.push(ground);
+
+// Himmel + Halo-Ring
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(500,32,32),
+  new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide })
+);
+scene.add(sky);
+const haloRing = new THREE.Mesh(
+  new THREE.TorusGeometry(100,5,16,100),
+  new THREE.MeshBasicMaterial({ color: 0xFFFFFF })
+);
+haloRing.rotation.x = Math.PI/2;
+haloRing.position.set(0,200,-300);
+scene.add(haloRing);
+
+// --- Input ---
+let moveAxis = {x:0, y:0}, turnAxis = {x:0, y:0};
+let jumpPressed = false;
+
+window.addEventListener('keydown', (e)=>{
+  if (e.key==='w') moveAxis.y = -1;
+  if (e.key==='s') moveAxis.y =  1;
+  if (e.key==='a') moveAxis.x = -1;
+  if (e.key==='d') moveAxis.x =  1;
+  if (e.key==='ArrowLeft')  turnAxis.x = -1;
+  if (e.key==='ArrowRight') turnAxis.x =  1;
+  if (e.key===' ') jumpPressed = true;
+});
+window.addEventListener('keyup', (e)=>{
+  if (e.key==='w' || e.key==='s') moveAxis.y = 0;
+  if (e.key==='a' || e.key==='d') moveAxis.x = 0;
+  if (e.key==='ArrowLeft' || e.key==='ArrowRight') turnAxis.x = 0;
+  if (e.key===' ') jumpPressed = false;
+});
+
+function readXRInput(session){
+  moveAxis.x = moveAxis.y = 0;
+  turnAxis.x = turnAxis.y = 0;
+  jumpPressed = false;
+
+  for (const source of session.inputSources){
+    if (!source.gamepad) continue;
+    const { axes, buttons } = source.gamepad;
+    const dead = 0.1;
+    const axX = Math.abs(axes[2]||0) > dead ? axes[2] : 0;
+    const axY = Math.abs(axes[3]||0) > dead ? axes[3] : 0;
+
+    if (source.handedness === 'left'){
+      moveAxis.x = axX; moveAxis.y = axY;
+    } else if (source.handedness === 'right'){
+      turnAxis.x = axX; turnAxis.y = axY;
+      // A-Button häufig index 4 (Quest) – hier als Heuristik:
+      jumpPressed = buttons.some((b,i)=> i===4 ? b.pressed : false);
+    }
+  }
+}
+
+function onXRFrame(){
+  if (renderer.xr.isPresenting){
+    readXRInput(renderer.xr.getSession());
+  }
+}
+
+// --- Movement / Physics ---
+const velocity = new THREE.Vector3();   // NUR für X/Z
+const direction = new THREE.Vector3();
+const moveSpeed = 5;
+let playerYRotation = 0;
+
+// Vertikal-Physik (Jump-Fix)
+let vy = 0;
+let grounded = false;
+let coyoteTimer = 0;
+const COYOTE_MAX = 0.1;     // 100 ms Gnadenzeit
+const JUMP = 8;             // Sprung-Impuls
+const GRAV = -9.8 * 0.5;    // halbe Erdanziehung (wie vorher)
+const PROBE = 0.25;         // Snap-Distanz
+
+const downRay = new THREE.Raycaster();
+const downDir = new THREE.Vector3(0,-1,0);
+
+function landIfGroundClose(pos){
+  // leicht oberhalb casten, damit wir zuverlässig treffen
+  downRay.set(new THREE.Vector3(pos.x, pos.y + 0.2, pos.z), downDir);
+  const hits = downRay.intersectObjects([ground, interiorFloor, roof], true);
+  if (!hits.length) return false;
+  const hit = hits[0];
+
+  // Nur beim FALLEN und wenn Boden wirklich nah ist „einrasten“
+  if (vy <= 0 && hit.distance <= (0.2 + PROBE)) {
+    pos.y = pos.y + 0.2 - hit.distance;
+    vy = 0;
+    grounded = true;
+    coyoteTimer = 0;
+    return true;
+  }
+  return false;
+}
+
+// --- Shooting ---
+const bullets = [];
+controllerLeft.addEventListener('selectstart', ()=>{
+  const bullet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.05,8,8),
+    new THREE.MeshBasicMaterial({ color: 0xff0000 })
+  );
+  bullet.position.copy(controllerLeft.getWorldPosition(new THREE.Vector3()));
+  bullet.quaternion.copy(controllerLeft.getWorldQuaternion(new THREE.Quaternion()));
+  const dir = new THREE.Vector3(0,0,-1).applyQuaternion(bullet.quaternion);
+  bullet.velocity = dir.multiplyScalar(10);
+  scene.add(bullet);
+  bullets.push(bullet);
+});
+
+// --- Update ---
+function update(dt){
+  // Turning
+  playerYRotation -= turnAxis.x * 0.05;
+  playerGroup.rotation.y = playerYRotation;
+
+  // Horizontal movement (lokal)
+  if (Math.abs(moveAxis.x) > 0 || Math.abs(moveAxis.y) > 0) {
+    direction.set(moveAxis.x, 0, moveAxis.y).normalize();
+    const yRot = new THREE.Matrix4().makeRotationY(playerYRotation);
+    direction.applyMatrix4(yRot);
+    velocity.x = direction.x * moveSpeed;
+    velocity.z = direction.z * moveSpeed;
+  } else {
+    velocity.x = 0; velocity.z = 0;
+  }
+
+  // ---- Vertikal: Reihenfolge wichtig ----
+  // Coyote-Zeit fortschreiben
+  if (!grounded) coyoteTimer = Math.max(0, coyoteTimer - dt);
+
+  // Jump (vor Gravity / vor Landen)
+  if (jumpPressed && (grounded || coyoteTimer > 0)){
+    vy = JUMP;
+    grounded = false;
+    coyoteTimer = 0;
+  }
+
+  // Gravity
+  vy += GRAV * dt;
+
+  // Position vorschlagen
+  const newPos = playerGroup.position.clone();
+  newPos.x += velocity.x * dt;
+  newPos.z += velocity.z * dt;
+  newPos.y += vy * dt;
+
+  // --- Kollisionen horizontal (Wände/Hindernisse), Boden/Decken separat ---
+  const playerHeight = 1.6;
+  const playerRadius = 0.5;
+  let finalPos = newPos.clone();
+
+  const wallObjects = collidableObjects.filter(o => o !== ground && o !== interiorFloor && o !== roof);
+  for (const obj of wallObjects){
+    const box = new THREE.Box3().setFromObject(obj);
+
+    const pBox = {
+      minX: finalPos.x - playerRadius,
+      maxX: finalPos.x + playerRadius,
+      minZ: finalPos.z - playerRadius,
+      maxZ: finalPos.z + playerRadius,
+      minY: finalPos.y,
+      maxY: finalPos.y + playerHeight
+    };
+
+    // horizontaler Überlappungs-Test
+    if (pBox.maxX > box.min.x && pBox.minX < box.max.x &&
+        pBox.maxZ > box.min.z && pBox.minZ < box.max.z){
+
+      // von unten anstoßen (Decke)
+      if (vy > 0 &&
+          playerGroup.position.y + playerHeight <= box.min.y &&
+          finalPos.y + playerHeight >= box.min.y){
+        finalPos.y = box.min.y - playerHeight;
+        vy = 0;
+      }
+      // Seiten-Kollision blocken
+      else if (finalPos.y < box.max.y && finalPos.y + playerHeight > box.min.y){
+        const oldBox = {
+          minX: playerGroup.position.x - playerRadius,
+          maxX: playerGroup.position.x + playerRadius,
+          minZ: playerGroup.position.z - playerRadius,
+          maxZ: playerGroup.position.z + playerRadius
+        };
+        if (!(oldBox.maxX > box.min.x && oldBox.minX < box.max.x)) {
+          finalPos.x = playerGroup.position.x;
         }
-        groundGeometry.attributes.position.needsUpdate = true;
-        groundGeometry.computeVertexNormals();
-        const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, side: THREE.DoubleSide });
-        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        scene.add(ground);
-
-        // Obstacles (simple boxes)
-        for (let i = 0; i < 10; i++) {
-            const obstacle = new THREE.Mesh(
-                new THREE.BoxGeometry(Math.random() * 2 + 1, Math.random() * 2 + 1, Math.random() * 2 + 1),
-                new THREE.MeshStandardMaterial({ color: 0xA9A9A9 })
-            );
-            obstacle.position.set(
-                Math.random() * 20 - 10,
-                obstacle.geometry.parameters.height / 2,
-                Math.random() * 20 - 10
-            );
-            scene.add(obstacle);
-            collidableObjects.push(obstacle);
+        if (!(oldBox.maxZ > box.min.z && oldBox.minZ < box.max.z)) {
+          finalPos.z = playerGroup.position.z;
         }
+      }
+    }
+  }
 
-        // Central fortress (simple structure)
-        const fortressGroup = new THREE.Group();
-        // Walls
-        const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 }); // Dark color
-        
-        // Front wall with entrance gap
-        const wall1Left = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3, 0.5), wallMaterial);
-        wall1Left.position.set(-1.75, 1.5, 2.5);
-        fortressGroup.add(wall1Left);
-        collidableObjects.push(wall1Left);
-        const wall1Right = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3, 0.5), wallMaterial);
-        wall1Right.position.set(1.75, 1.5, 2.5);
-        fortressGroup.add(wall1Right);
-        collidableObjects.push(wall1Right);
-        // Entrance lintel (top of doorway)
-        const lintel = new THREE.Mesh(new THREE.BoxGeometry(2, 0.5, 0.5), wallMaterial);
-        lintel.position.set(0, 2.75, 2.5);
-        fortressGroup.add(lintel);
-        collidableObjects.push(lintel);
-        
-        // Back wall
-        const wall2 = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 0.5), wallMaterial);
-        wall2.position.set(0, 1.5, -2.5);
-        fortressGroup.add(wall2);
-        collidableObjects.push(wall2);
-        
-        // Left wall
-        const wall3 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 5), wallMaterial);
-        wall3.position.set(2.5, 1.5, 0);
-        fortressGroup.add(wall3);
-        collidableObjects.push(wall3);
-        
-        // Right wall
-        const wall4 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 5), wallMaterial);
-        wall4.position.set(-2.5, 1.5, 0);
-        fortressGroup.add(wall4);
-        collidableObjects.push(wall4);
-        
-        // Roof
-        const roof = new THREE.Mesh(new THREE.BoxGeometry(5, 0.5, 5), wallMaterial);
-        roof.position.set(0, 3.25, 0);
-        fortressGroup.add(roof);
-        collidableObjects.push(roof);
-        
-        // Interior floor
-        const interiorFloor = new THREE.Mesh(new THREE.BoxGeometry(4, 0.1, 4), groundMaterial);
-        interiorFloor.position.set(0, 0.05, 0);
-        fortressGroup.add(interiorFloor);
-        collidableObjects.push(interiorFloor);
-        
-        scene.add(fortressGroup);
-        
-        // Add ground to collidable objects
-        collidableObjects.push(ground);
+  // Bodenfang nur beim Fallen & nahe am Boden
+  const landed = landIfGroundClose(finalPos);
+  if (!landed && grounded && vy < 0){
+    // wir waren grounded, sind jetzt in der Luft -> Coyote starten
+    grounded = false;
+    coyoteTimer = COYOTE_MAX;
+  }
 
-        // Sky with Halo ring (simple skybox and ring model)
-        const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
-        const skyMaterial = new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide });
-        const sky = new THREE.Mesh(skyGeometry, skyMaterial);
-        scene.add(sky);
+  // Position anwenden
+  playerGroup.position.copy(finalPos);
 
-        // Halo ring (torus for simplicity)
-        const ringGeometry = new THREE.TorusGeometry(100, 5, 16, 100);
-        const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
-        const haloRing = new THREE.Mesh(ringGeometry, ringMaterial);
-        haloRing.rotation.x = Math.PI / 2;
-        haloRing.position.set(0, 200, -300); // Visible in the sky
-        scene.add(haloRing);
+  // --- Bullets updaten (rückwärts iterieren, robust gegen splice) ---
+  for (let i = bullets.length - 1; i >= 0; i--){
+    const b = bullets[i];
+    const old = b.position.clone();
+    b.position.add(b.velocity.clone().multiplyScalar(dt));
 
-        // Movement controls
-        const velocity = new THREE.Vector3();
-        const direction = new THREE.Vector3();
-        const moveSpeed = 5;
-        const jumpSpeed = 8; // Higher jump due to lower gravity
-        const gravity = -9.8 * 0.5; // Half Earth gravity
-        let isJumping = false;
-        let playerYRotation = 0; // Track player's Y rotation separately
-        
-        // Raycaster for collision detection
-        const raycaster = new THREE.Raycaster();
-        
-        // Downward raycast for ground detection
-        const downRay = new THREE.Raycaster();
-        const downDir = new THREE.Vector3(0,-1,0);
+    const ray = new THREE.Raycaster(old, b.velocity.clone().normalize());
+    const hits = ray.intersectObjects(collidableObjects);
+    let hit = false;
+    for (const h of hits){
+      if (h.distance <= b.velocity.length() * dt) { hit = true; break; }
+    }
+    if (hit || b.position.length() > 100){
+      scene.remove(b);
+      bullets.splice(i,1);
+    }
+  }
+}
 
-        function clampToGround(pos, maxDrop = 3){
-            downRay.set(new THREE.Vector3(pos.x, pos.y + 1, pos.z), downDir);
-            const hits = downRay.intersectObjects([ground, interiorFloor, roof], true);
-            if (hits.length && hits[0].distance <= maxDrop) {
-                pos.y = pos.y + 1 - hits[0].distance; // auflegen
-                return true;
-            }
-            return false;
-        }
+// --- Animation Loop ---
+renderer.setAnimationLoop(()=>{
+  const dt = Math.min(clock.getDelta(), 1/30);
+  onXRFrame();
+  update(dt);
+  renderer.render(scene, camera);
+});
 
-        // Controller grips for hands (optional visualization) - add to playerGroup
-        const grip1 = renderer.xr.getControllerGrip(0);
-        const grip2 = renderer.xr.getControllerGrip(1);
-        playerGroup.add(grip1);
-        playerGroup.add(grip2);
-
-        // Input handling
-        let moveAxis = {x:0, y:0}, turnAxis = {x:0, y:0};
-        let jumpPressed = false;
-
-        // Mock input for desktop testing (use gamepad API in VR)
-        window.addEventListener('keydown', (e) => {
-            // For testing without VR: WASD movement, space jump, arrow keys turn
-            if (e.key === 'w') moveAxis.y = -1; // Adjusted for forward
-            if (e.key === 's') moveAxis.y = 1;
-            if (e.key === 'a') moveAxis.x = -1;
-            if (e.key === 'd') moveAxis.x = 1;
-            if (e.key === 'ArrowLeft') turnAxis.x = -1;
-            if (e.key === 'ArrowRight') turnAxis.x = 1;
-            if (e.key === ' ') jumpPressed = true;
-        });
-        window.addEventListener('keyup', (e) => {
-            if (e.key === 'w' || e.key === 's') moveAxis.y = 0;
-            if (e.key === 'a' || e.key === 'd') moveAxis.x = 0;
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') turnAxis.x = 0;
-            if (e.key === ' ') jumpPressed = false;
-        });
-
-        function readXRInput(session){
-            moveAxis.x = moveAxis.y = 0;
-            turnAxis.x = turnAxis.y = 0;
-            jumpPressed = false;
-
-            for (const source of session.inputSources) {
-                if (!source.gamepad) continue;
-                const { axes, buttons } = source.gamepad;
-                const dead = 0.1;
-                const axX = Math.abs(axes[2]||0) > dead ? axes[2] : 0;
-                const axY = Math.abs(axes[3]||0) > dead ? axes[3] : 0;
-
-                if (source.handedness === 'left') {
-                    moveAxis.x = axX; moveAxis.y = axY;
-                } else if (source.handedness === 'right') {
-                    turnAxis.x = axX; turnAxis.y = axY;
-                    // A-Button (Quest) oft buttons[4], aber variiert → fallback:
-                    jumpPressed = buttons.some((b, i) => i===4 ? b.pressed : false);
-                }
-            }
-        }
-
-        function onXRFrame(){
-            if (renderer.xr.isPresenting) {
-                readXRInput(renderer.xr.getSession());
-            }
-        }
-
-        // Update function with delta time
-        function update(dt) {
-            // Turning (smooth turn with right thumbstick) - update player rotation
-            playerYRotation -= turnAxis.x * 0.05;
-            playerGroup.rotation.y = playerYRotation;
-
-            // Movement (forward/backward and strafe based on player's Y rotation only)
-            if (Math.abs(moveAxis.x) > 0 || Math.abs(moveAxis.y) > 0) {
-                direction.set(0, 0, 0);
-                direction.x = moveAxis.x; // Strafe left/right
-                direction.z = moveAxis.y; // Forward/back (positive y = backward)
-                direction.normalize();
-                
-                // Apply only Y rotation to movement direction (not full camera quaternion)
-                const yRotationMatrix = new THREE.Matrix4().makeRotationY(playerYRotation);
-                direction.applyMatrix4(yRotationMatrix);
-                
-                velocity.x = direction.x * moveSpeed;
-                velocity.z = direction.z * moveSpeed;
-            } else {
-                velocity.x = 0;
-                velocity.z = 0;
-            }
-
-            // Gravity
-            velocity.y += gravity * dt;
-            
-            // Calculate new position
-            const deltaPosition = velocity.clone().multiplyScalar(dt);
-            const newPosition = playerGroup.position.clone().add(deltaPosition);
-            
-            // Collision detection
-            const playerHeight = 1.6;
-            const playerRadius = 0.5;
-            let finalPosition = newPosition.clone();
-            
-            // Horizontal collision detection with walls/obstacles (keep existing logic but exclude ground meshes)
-            const wallObjects = collidableObjects.filter(obj => obj !== ground && obj !== interiorFloor && obj !== roof);
-            for (const obj of wallObjects) {
-                const box = new THREE.Box3().setFromObject(obj);
-                
-                // Check if player overlaps with object horizontally
-                const playerBox = {
-                    minX: finalPosition.x - playerRadius,
-                    maxX: finalPosition.x + playerRadius,
-                    minZ: finalPosition.z - playerRadius,
-                    maxZ: finalPosition.z + playerRadius,
-                    minY: finalPosition.y,
-                    maxY: finalPosition.y + playerHeight
-                };
-                
-                // Horizontal collision check
-                if (playerBox.maxX > box.min.x && playerBox.minX < box.max.x &&
-                    playerBox.maxZ > box.min.z && playerBox.minZ < box.max.z) {
-                    
-                    // Vertical collision - hitting from below
-                    if (velocity.y > 0 && 
-                        playerGroup.position.y + playerHeight <= box.min.y &&
-                        finalPosition.y + playerHeight >= box.min.y) {
-                        finalPosition.y = box.min.y - playerHeight;
-                        velocity.y = 0;
-                    }
-                    // Horizontal collision - block movement
-                    else if (finalPosition.y < box.max.y && 
-                             finalPosition.y + playerHeight > box.min.y) {
-                        
-                        // Determine which axis to block based on previous position
-                        const oldBox = {
-                            minX: playerGroup.position.x - playerRadius,
-                            maxX: playerGroup.position.x + playerRadius,
-                            minZ: playerGroup.position.z - playerRadius,
-                            maxZ: playerGroup.position.z + playerRadius
-                        };
-                        
-                        // If we weren't overlapping horizontally before, block X movement
-                        if (!(oldBox.maxX > box.min.x && oldBox.minX < box.max.x)) {
-                            finalPosition.x = playerGroup.position.x;
-                        }
-                        // If we weren't overlapping in Z before, block Z movement
-                        if (!(oldBox.maxZ > box.min.z && oldBox.minZ < box.max.z)) {
-                            finalPosition.z = playerGroup.position.z;
-                        }
-                    }
-                }
-            }
-            
-            // Ground detection using downward raycast
-            const onGround = clampToGround(finalPosition);
-            if (onGround) {
-                velocity.y = 0;
-                isJumping = false;
-            }
-            
-            playerGroup.position.copy(finalPosition);
-            
-            // Jumping
-            if (jumpPressed && !isJumping) {
-                velocity.y = jumpSpeed;
-                isJumping = true;
-            }
-
-            // Bullet update with collision detection
-            bullets.forEach((bullet, index) => {
-                const oldPosition = bullet.position.clone();
-                bullet.position.add(bullet.velocity.clone().multiplyScalar(dt));
-                
-                // Check collision with objects
-                const raycaster = new THREE.Raycaster(oldPosition, bullet.velocity.clone().normalize());
-                const intersects = raycaster.intersectObjects(collidableObjects);
-                
-                let hitSomething = false;
-                for (const intersect of intersects) {
-                    if (intersect.distance <= bullet.velocity.length() * dt) {
-                        hitSomething = true;
-                        break;
-                    }
-                }
-                
-                if (hitSomething || bullet.position.length() > 100) {
-                    scene.remove(bullet);
-                    bullets.splice(index, 1);
-                }
-            });
-        }
-
-        // Animation loop with proper delta time
-        renderer.setAnimationLoop((time) => {
-            const dt = Math.min(clock.getDelta(), 1/30); // clamp für Ausreißer
-            onXRFrame();      // Eingaben lesen
-            update(dt);       // Physik/Bewegung/Schüsse
-            renderer.render(scene, camera);
-        });
-
-        // Resize handling
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-    </script>
+// --- Resize ---
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
 </body>
 </html>
