@@ -1,6 +1,4 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
-import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/webxr/VRButton.js';
-import { XRControllerModelFactory } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/webxr/XRControllerModelFactory.js';
+// Three.js wird über CDN geladen
 
 class SpartanVRShooter {
     constructor() {
@@ -57,7 +55,19 @@ class SpartanVRShooter {
         this.renderer.xr.enabled = true;
         
         document.body.appendChild(this.renderer.domElement);
-        document.body.appendChild(VRButton.createButton(this.renderer));
+        
+        // VR Button zum Container hinzufügen
+        const vrButton = THREE.VRButton.createButton(this.renderer);
+        vrButton.style.position = 'relative';
+        vrButton.style.margin = '10px auto';
+        vrButton.style.display = 'block';
+        
+        const vrContainer = document.getElementById('vrButtonContainer');
+        if (vrContainer) {
+            vrContainer.appendChild(vrButton);
+        } else {
+            document.body.appendChild(vrButton);
+        }
     }
     
     setupCamera() {
@@ -92,7 +102,7 @@ class SpartanVRShooter {
     }
     
     setupControllers() {
-        const controllerModelFactory = new XRControllerModelFactory();
+        const controllerModelFactory = new THREE.XRControllerModelFactory();
         
         for (let i = 0; i < 2; i++) {
             const controller = this.renderer.xr.getController(i);
@@ -322,10 +332,41 @@ class SpartanVRShooter {
             this.renderer.setSize(window.innerWidth, window.innerHeight);
         });
         
-        document.getElementById('startButton').addEventListener('click', () => {
-            document.getElementById('startButton').style.display = 'none';
-            document.getElementById('instructions').style.display = 'none';
+        // Start Button Event Listener
+        const startButton = document.getElementById('startButton');
+        if (startButton) {
+            startButton.addEventListener('click', () => {
+                console.log('Start button clicked!');
+                startButton.style.display = 'none';
+                document.getElementById('instructions').style.display = 'none';
+                
+                // Zeige VR Button
+                const vrContainer = document.getElementById('vrButtonContainer');
+                if (vrContainer) {
+                    vrContainer.style.display = 'block';
+                }
+                
+                // Starte das Spiel auch im Desktop-Modus
+                this.startGame();
+            });
+        }
+        
+        // VR Session Events
+        this.renderer.xr.addEventListener('sessionstart', () => {
+            console.log('VR session started');
+            document.getElementById('ui').style.display = 'none';
         });
+        
+        this.renderer.xr.addEventListener('sessionend', () => {
+            console.log('VR session ended');
+            document.getElementById('ui').style.display = 'block';
+        });
+    }
+    
+    startGame() {
+        console.log('Game started!');
+        // Hier können später Spielstart-Logiken hinzugefügt werden
+        // Zum Beispiel: Spawn-Punkt setzen, Musik starten, etc.
     }
     
     handleControllerInput() {

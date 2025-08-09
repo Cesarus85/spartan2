@@ -27,7 +27,7 @@
         
         #startButton {
             position: absolute;
-            top: 50%;
+            top: 40%;
             left: 50%;
             transform: translate(-50%, -50%);
             padding: 20px 40px;
@@ -38,10 +38,19 @@
             border-radius: 10px;
             cursor: pointer;
             z-index: 200;
+            user-select: none;
         }
         
         #startButton:hover {
             background: linear-gradient(45deg, #4a7bc8, #6a9be8);
+        }
+        
+        #vrButtonContainer {
+            position: absolute;
+            top: 60%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
         }
         
         #instructions {
@@ -63,7 +72,8 @@
         <div>FPS: <span id="fps">0</span></div>
     </div>
     
-    <button id="startButton">ENTER VR TRAINING</button>
+    <div id="startButton">ENTER VR TRAINING</div>
+    <div id="vrButtonContainer"></div>
     
     <div id="instructions">
         <h3>SPARTAN TRAINING PROTOKOLL</h3>
@@ -72,6 +82,9 @@
         <p>Ziel: Überlebe das Training und erkunde die Festung</p>
     </div>
 
-    <script type="module" src="js/main.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/webxr/VRButton.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/webxr/XRControllerModelFactory.js"></script>
+    <script src="js/main.js"></script>
 </body>
 </html>
