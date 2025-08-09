@@ -101,7 +101,7 @@ for (let i=0; i<10; i++){
   w.position.set(Math.random()*20-10, w.geometry.parameters.height/2, Math.random()*20-10);
   scene.add(w);
   addStaticCollider(w);
-  addWalkable(w); // <— jetzt oben drauf landen möglich
+  addWalkable(w); // oben drauf landen möglich
 }
 
 // Festung
@@ -202,7 +202,6 @@ function readXRInput(session){
       moveAxis.x = axX; moveAxis.y = axY;
 
       // Trigger links = feuern (selectstart/selectend setzen fireHeld zusätzlich)
-      // hier optionales Fallback:
       const triggerPressed = (buttons[0] && buttons[0].pressed) || false;
       if (triggerPressed) fireHeld = true;
 
@@ -249,6 +248,10 @@ const PROBE = 0.25;         // Snap-Distanz
 const downRay = new THREE.Raycaster();
 const downDir = new THREE.Vector3(0,-1,0);
 
+// NEU: Up-Ray für Decken-Kollision
+const upRay = new THREE.Raycaster();
+const upDir = new THREE.Vector3(0,1,0);
+
 function landIfGroundClose(pos){
   // leicht oberhalb casten, damit wir zuverlässig treffen
   downRay.set(new THREE.Vector3(pos.x, pos.y + 0.2, pos.z), downDir);
@@ -265,6 +268,22 @@ function landIfGroundClose(pos){
     return true;
   }
   return false;
+}
+
+// NEU: Decken-Block – verhindert Durchspringen nach oben
+function blockCeiling(pos, dt, playerHeight){
+  if (vy <= 0) return; // nur bei Aufwärtsbewegung
+  // Ray vom alten Kopf (vor der Bewegung) nach oben über die zurückgelegte Strecke
+  const headOldY = playerGroup.position.y + playerHeight;
+  upRay.set(new THREE.Vector3(pos.x, headOldY, pos.z), upDir);
+  upRay.far = (vy * dt) + 0.05; // kleine Toleranz
+  const hits = upRay.intersectObjects(staticColliders.map(e=>e.obj), true);
+  if (!hits.length) return;
+
+  const hit = hits[0];
+  const clampY = hit.point.y - playerHeight;
+  if (pos.y > clampY) pos.y = clampY; // unter die Decke klemmen
+  vy = 0; // Kopf stößt an -> vertikale Geschwindigkeit null
 }
 
 // --- Shooting: Schritt B (Waffen + Pool) ---
@@ -286,7 +305,6 @@ function acquireBullet(radius, color){
       new THREE.MeshBasicMaterial({ color })
     );
   } else {
-    // ggf. Geometrie/Material anpassen
     if (!m.geometry.parameters || m.geometry.parameters.radius !== radius){
       m.geometry.dispose();
       m.geometry = new THREE.SphereGeometry(radius, 8, 8);
@@ -321,7 +339,6 @@ function update(dt){
   }
 
   // ---- Vertikal: Reihenfolge wichtig ----
-  // Coyote-Zeit fortschreiben
   if (!grounded) coyoteTimer = Math.max(0, coyoteTimer - dt);
 
   // Jump (vor Gravity / vor Landen)
@@ -345,7 +362,8 @@ function update(dt){
   const playerRadius = 0.5;
   let finalPos = newPos.clone();
 
-  // Statt setFromObject pro Frame nutzen wir cached box:
+  // Seiten/Decken durch Boxen (statisch gecached) – Roof war bisher ausgenommen,
+  // wir lassen die Decke jetzt vom Up-Ray blocken (siehe unten).
   const wallEntries = staticColliders.filter(e => e.obj !== ground && e.obj !== interiorFloor && e.obj !== roof);
 
   for (const { box } of wallEntries){
@@ -361,12 +379,8 @@ function update(dt){
     if (pBox.maxX > box.min.x && pBox.minX < box.max.x &&
         pBox.maxZ > box.min.z && pBox.minZ < box.max.z){
 
-      if (vy > 0 &&
-          playerGroup.position.y + playerHeight <= box.min.y &&
-          finalPos.y + playerHeight >= box.min.y){
-        finalPos.y = box.min.y - playerHeight;
-        vy = 0;
-      } else if (finalPos.y < box.max.y && finalPos.y + playerHeight > box.min.y){
+      // Seiten-Kollision blocken (X/Z), wenn wir in den Bereich schieben
+      if (finalPos.y < box.max.y && finalPos.y + playerHeight > box.min.y){
         const oldBox = {
           minX: playerGroup.position.x - playerRadius,
           maxX: playerGroup.position.x + playerRadius,
@@ -383,10 +397,12 @@ function update(dt){
     }
   }
 
+  // *** NEU: Decke blocken, bevor wir Bodenfang machen ***
+  blockCeiling(finalPos, dt, playerHeight);
+
   // Bodenfang nur beim Fallen & nahe am Boden
   const landed = landIfGroundClose(finalPos);
   if (!landed && grounded && vy < 0){
-    // wir waren grounded, sind jetzt in der Luft -> Coyote starten
     grounded = false;
     coyoteTimer = COYOTE_MAX;
   }
@@ -413,16 +429,16 @@ function update(dt){
   }
 
   // --- Bullets updaten (rückwärts iterieren, robust gegen splice) ---
+  const staticObjs = staticColliders.map(e => e.obj);
   for (let i = bullets.length - 1; i >= 0; i--){
     const b = bullets[i];
     const old = b.position.clone();
     b.position.addScaledVector(b.velocity, dt);
 
-    // Kollisionscheck via Ray vom alten zum neuen Punkt
     const ray = new THREE.Raycaster(old, b.velocity.clone().normalize());
     const dist = b.velocity.length() * dt;
     ray.far = dist;
-    const hits = ray.intersectObjects(staticColliders.map(e => e.obj));
+    const hits = ray.intersectObjects(staticObjs);
     const hit = hits.length > 0;
 
     if (hit || b.position.length() > 150){
