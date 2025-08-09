@@ -27,13 +27,10 @@ document.body.appendChild(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer));
 const clock = new THREE.Clock();
 
-// --- Mini-Grafik-Pass ---
-scene.fog = new THREE.Fog(0x88b7e0, 20, 120);
-const hemi = new THREE.HemisphereLight(0xbfd7ff, 0x403020, 0.7);
-scene.add(hemi);
-scene.add(new THREE.AmbientLight(0xffffff, 0.35));
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
-dirLight.position.set(5,12,6);
+// --- Lights ---
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+dirLight.position.set(5,10,5);
 scene.add(dirLight);
 
 // --- Player rig ---
@@ -42,7 +39,7 @@ playerGroup.position.set(0, 3.25 + 1.6, 0);
 scene.add(playerGroup);
 playerGroup.add(camera);
 
-// „Body“
+// Spartan-„Body“
 const playerBody = new THREE.Mesh(
   new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
   new THREE.MeshStandardMaterial({ color: 0x006400 })
@@ -50,7 +47,7 @@ const playerBody = new THREE.Mesh(
 playerBody.position.y = -1.6;
 playerGroup.add(playerBody);
 
-// Controller
+// Controller + Grips
 const controllerLeft  = renderer.xr.getController(0);
 const controllerRight = renderer.xr.getController(1);
 playerGroup.add(controllerLeft, controllerRight);
@@ -58,7 +55,7 @@ const gripLeft  = renderer.xr.getControllerGrip(0);
 const gripRight = renderer.xr.getControllerGrip(1);
 playerGroup.add(gripLeft, gripRight);
 
-// „Gun“ (links)
+// „Gun“
 const gun = new THREE.Mesh(
   new THREE.BoxGeometry(0.1,0.1,0.5),
   new THREE.MeshStandardMaterial({ color: 0x808080 })
@@ -69,27 +66,31 @@ controllerLeft.add(gun);
 // --- Level helpers ---
 const staticColliders = []; // { obj, box }
 const walkableMeshes  = [];
-function addStaticCollider(obj){ const box = new THREE.Box3().setFromObject(obj); staticColliders.push({ obj, box }); }
+
+function addStaticCollider(obj){
+  const box = new THREE.Box3().setFromObject(obj);
+  staticColliders.push({ obj, box });
+}
 function addWalkable(obj){ walkableMeshes.push(obj); }
 
 // --- Ground ---
 const groundGeometry = new THREE.PlaneGeometry(20,20,20,20);
 groundGeometry.rotateX(-Math.PI/2);
-// leichte Unebenheiten
+// Unebenheiten
 const verts = groundGeometry.attributes.position.array;
 for (let i=2; i<verts.length; i+=3) verts[i] += Math.random()*0.5 - 0.25;
 groundGeometry.attributes.position.needsUpdate = true;
 groundGeometry.computeVertexNormals();
 
-const groundMaterial = new THREE.MeshStandardMaterial({
-  color: 0x8B6b3a, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide
-});
+const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, side: THREE.DoubleSide });
 const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-scene.add(ground); addStaticCollider(ground); addWalkable(ground);
+scene.add(ground);
+addStaticCollider(ground);
+addWalkable(ground);
 
-// --- Fortress (erst Festung, dann Hindernisse) ---
+// --- Fortress (erst Festung, dann Hindernisse!) ---
 const fortressGroup = new THREE.Group();
-const wallMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.7, metalness: 0.05 });
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
 
 const wall1Left = new THREE.Mesh(new THREE.BoxGeometry(1.5,3,0.5), wallMat);
 wall1Left.position.set(-1.75,1.5,2.5);
@@ -125,61 +126,81 @@ fortressGroup.add(interiorFloor); addStaticCollider(interiorFloor); addWalkable(
 
 scene.add(fortressGroup);
 
-// --- No-Spawn-Zonen (Fortress + Tor-Korridor) ---
+// --- No-Spawn-Zonen definieren ---
+// 1) gesamte Festung inkl. etwas „Luft“
+// 2) Korridor vor dem Tor (damit der Eingang frei bleibt)
 const forbiddenZones = [
-  new THREE.Box3(new THREE.Vector3(-2.7,0.0,-2.7), new THREE.Vector3( 2.7,4.5,2.9)),
-  new THREE.Box3(new THREE.Vector3(-1.2,0.0, 1.2), new THREE.Vector3( 1.2,3.0,4.0))
+  // Festungs-Footprint (x,z ≈ ±2.5), y bis über Dach
+  new THREE.Box3(
+    new THREE.Vector3(-2.7, 0.0, -2.7),
+    new THREE.Vector3( 2.7, 4.5,  2.9)
+  ),
+  // Tor-Korridor vor der Festung (zentriert bei z≈2.5, Breite ~2m)
+  new THREE.Box3(
+    new THREE.Vector3(-1.2, 0.0,  1.2),
+    new THREE.Vector3( 1.2, 3.0,  4.0)
+  )
 ];
 
+// --- Hindernisse (NACH Festung, mit Avoid-Spawn) ---
 function intersectsForbidden(box){
-  for (const f of forbiddenZones){
-    if (box.intersectsBox(f)) return true;
+  for (const forb of forbiddenZones){
+    if (box.intersectsBox(forb)) return true;
   }
   return false;
 }
 
-// Platzierung mit Verbotszonen
-function placeBlock(block, attempts=60){
-  const size = block.geometry.parameters;
-  const hx=(size.width||1)/2, hy=(size.height||1)/2, hz=(size.depth||1)/2;
-  for (let i=0;i<attempts;i++){
-    const x = Math.random()*20-10;
-    const z = Math.random()*20-10;
-    const y = hy; // auf den Boden stellen
-    const min = new THREE.Vector3(x-hx, 0,   z-hz);
-    const max = new THREE.Vector3(x+hx, y*2, z+hz);
+function placeBlockAvoiding(block, attempts = 60){
+  const size = block.geometry.parameters; // {width,height,depth}
+  const hx = (size.width  || 1)/2;
+  const hy = (size.height || 1)/2;
+  const hz = (size.depth  || 1)/2;
+
+  for (let i=0; i<attempts; i++){
+    const x = Math.random()*20 - 10;
+    const z = Math.random()*20 - 10;
+    const y = hy; // auf Boden stellen
+
+    const min = new THREE.Vector3(x - hx, 0, z - hz);
+    const max = new THREE.Vector3(x + hx, y*2, z + hz);
     const candidate = new THREE.Box3(min, max);
+
     if (!intersectsForbidden(candidate)){
-      block.position.set(x,y,z);
+      block.position.set(x, y, z);
       return true;
     }
   }
-  return false;
+  return false; // not found (selten)
 }
 
-// Hindernisse (graue Blöcke → begehbar)
 for (let i=0; i<10; i++){
   const w = new THREE.Mesh(
     new THREE.BoxGeometry(Math.random()*2+1, Math.random()*2+1, Math.random()*2+1),
-    new THREE.MeshStandardMaterial({ color: 0xA9A9A9, roughness: 0.8, metalness: 0.05 })
+    new THREE.MeshStandardMaterial({ color: 0xA9A9A9 })
   );
-  if (!placeBlock(w)){
+
+  // positionieren mit Verbotzonen-Check
+  const ok = placeBlockAvoiding(w);
+  if (!ok){
+    // Fallback: setze weit außen ab
     w.position.set(12 + Math.random()*6, (w.geometry.parameters.height||1)/2, 12 + Math.random()*6);
   }
+
   scene.add(w);
+  // Collider NACH finaler Position berechnen:
   addStaticCollider(w);
   addWalkable(w);
 }
 
-// --- Himmel + Ring ---
+// --- Sky + Ring ---
 const sky = new THREE.Mesh(
   new THREE.SphereGeometry(500,32,32),
-  new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide, fog: false })
+  new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide })
 );
 scene.add(sky);
 const haloRing = new THREE.Mesh(
   new THREE.TorusGeometry(100,5,16,100),
-  new THREE.MeshBasicMaterial({ color: 0xFFFFFF, fog: false })
+  new THREE.MeshBasicMaterial({ color: 0xFFFFFF })
 );
 haloRing.rotation.x = Math.PI/2;
 haloRing.position.set(0,200,-300);
@@ -188,13 +209,9 @@ scene.add(haloRing);
 // --- Input ---
 let moveAxis = {x:0, y:0}, turnAxis = {x:0, y:0};
 let jumpPressed = false;
+
 let fireHeld = false;
 let rightBWasPressed = false;
-
-// Snap-Turn / Smooth Toggle
-let snapTurnEnabled = true;
-const SNAP_ANGLE = THREE.MathUtils.degToRad(30);
-let snapDebounce = 0;
 
 // Keyboard
 window.addEventListener('keydown', (e)=>{
@@ -208,8 +225,6 @@ window.addEventListener('keydown', (e)=>{
 
   if (e.key === '1') currentWeapon = 0;
   if (e.key === '2') currentWeapon = 1;
-
-  if (e.key.toLowerCase() === 't') snapTurnEnabled = !snapTurnEnabled;
 });
 window.addEventListener('keyup', (e)=>{
   if (e.key==='w' || e.key==='s') moveAxis.y = 0;
@@ -219,7 +234,6 @@ window.addEventListener('keyup', (e)=>{
 });
 
 // XR
-let rightStickClickPrev = false;
 function readXRInput(session){
   moveAxis.x = moveAxis.y = 0;
   turnAxis.x = turnAxis.y = 0;
@@ -239,19 +253,13 @@ function readXRInput(session){
 
     } else if (source.handedness === 'right'){
       turnAxis.x = axX; turnAxis.y = axY;
-
-      // A (heuristisch index 4) = Jump
       jumpPressed = buttons.some((b,i)=> i===4 ? b.pressed : false);
 
-      // B (index 5) = Weapon cycle (Edge)
       const bPressed = (buttons[5] && buttons[5].pressed) || false;
-      if (bPressed && !rightBWasPressed) currentWeapon = (currentWeapon + 1) % weapons.length;
+      if (bPressed && !rightBWasPressed) {
+        currentWeapon = (currentWeapon + 1) % weapons.length;
+      }
       rightBWasPressed = bPressed;
-
-      // Right stick click (häufig index 3) = Snap-Turn Toggle (Edge)
-      const stickClick = (buttons[3] && buttons[3].pressed) || false;
-      if (stickClick && !rightStickClickPrev) snapTurnEnabled = !snapTurnEnabled;
-      rightStickClickPrev = stickClick;
     }
   }
 }
@@ -269,12 +277,18 @@ const direction = new THREE.Vector3();
 const moveSpeed = 5;
 let playerYRotation = 0;
 
-// Vertical physics
-let vy = 0, grounded = false, coyoteTimer = 0;
-const COYOTE_MAX = 0.1, JUMP = 8, GRAV = -9.8 * 0.5, PROBE = 0.25;
+let vy = 0;
+let grounded = false;
+let coyoteTimer = 0;
+const COYOTE_MAX = 0.1;
+const JUMP = 8;
+const GRAV = -9.8 * 0.5;
+const PROBE = 0.25;
 
-const downRay = new THREE.Raycaster(), downDir = new THREE.Vector3(0,-1,0);
-const upRay   = new THREE.Raycaster(),   upDir = new THREE.Vector3(0, 1,0);
+const downRay = new THREE.Raycaster();
+const downDir = new THREE.Vector3(0,-1,0);
+const upRay   = new THREE.Raycaster();
+const upDir   = new THREE.Vector3(0,1,0);
 
 function landIfGroundClose(pos){
   downRay.set(new THREE.Vector3(pos.x, pos.y + 0.2, pos.z), downDir);
@@ -301,39 +315,45 @@ function blockCeiling(pos, dt, playerHeight){
   vy = 0;
 }
 
-// Weapons / Bullets
+// --- Weapons / Bullets ---
 const weapons = [
   { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10 },
   { name: 'BR', speed: 28, radius: 0.03, color: 0xff6a00, fireRate: 5  },
 ];
-let currentWeapon = 0, fireCooldown = 0;
-const bulletPool = [], bullets = [];
+let currentWeapon = 0;
+let fireCooldown = 0;
+
+const bulletPool = [];
+const bullets = [];
+
 function acquireBullet(radius, color){
   let m = bulletPool.pop();
   if (!m){
-    m = new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 8), new THREE.MeshBasicMaterial({ color }));
+    m = new THREE.Mesh(
+      new THREE.SphereGeometry(radius, 8, 8),
+      new THREE.MeshBasicMaterial({ color })
+    );
   } else {
     if (!m.geometry.parameters || m.geometry.parameters.radius !== radius){
-      m.geometry.dispose(); m.geometry = new THREE.SphereGeometry(radius, 8, 8);
+      m.geometry.dispose();
+      m.geometry = new THREE.SphereGeometry(radius, 8, 8);
     }
     m.material.color.setHex(color);
   }
-  m.visible = true; return m;
+  m.visible = true;
+  return m;
 }
-function releaseBullet(m){ m.visible=false; m.position.set(0,-999,0); if (m.velocity) m.velocity.set(0,0,0); bulletPool.push(m); }
+function releaseBullet(m){
+  m.visible = false;
+  m.position.set(0,-999,0);
+  if (m.velocity) m.velocity.set(0,0,0);
+  bulletPool.push(m);
+}
 
 // --- Update ---
 function update(dt){
-  // Turning (Snap oder Smooth)
-  if (snapTurnEnabled){
-    snapDebounce = Math.max(0, snapDebounce - dt);
-    if (snapDebounce === 0){
-      if (turnAxis.x >  0.6) { playerYRotation -= SNAP_ANGLE; snapDebounce = 0.2; }
-      if (turnAxis.x < -0.6) { playerYRotation += SNAP_ANGLE; snapDebounce = 0.2; }
-    }
-  } else {
-    playerYRotation -= turnAxis.x * 0.05;
-  }
+  // Turning
+  playerYRotation -= turnAxis.x * 0.05;
   playerGroup.rotation.y = playerYRotation;
 
   // Move (X/Z)
@@ -343,11 +363,15 @@ function update(dt){
     direction.applyMatrix4(yRot);
     velocity.x = direction.x * moveSpeed;
     velocity.z = direction.z * moveSpeed;
-  } else { velocity.x = 0; velocity.z = 0; }
+  } else {
+    velocity.x = 0; velocity.z = 0;
+  }
 
   // Vertical
   if (!grounded) coyoteTimer = Math.max(0, coyoteTimer - dt);
-  if (jumpPressed && (grounded || coyoteTimer > 0)){ vy = JUMP; grounded = false; coyoteTimer = 0; }
+  if (jumpPressed && (grounded || coyoteTimer > 0)){
+    vy = JUMP; grounded = false; coyoteTimer = 0;
+  }
   vy += GRAV * dt;
 
   const newPos = playerGroup.position.clone();
@@ -355,23 +379,29 @@ function update(dt){
   newPos.z += velocity.z * dt;
   newPos.y += vy * dt;
 
-  const playerHeight = 1.6, playerRadius = 0.5;
+  const playerHeight = 1.6;
+  const playerRadius = 0.5;
   let finalPos = newPos.clone();
 
-  // Seiten-Kollisionen (statische Boxen)
+  // Seiten-Kollisionen (gegen statische Boxen)
   const wallEntries = staticColliders.filter(e => e.obj !== ground && e.obj !== interiorFloor && e.obj !== roof);
   for (const { box } of wallEntries){
     const pBox = {
-      minX: finalPos.x - playerRadius, maxX: finalPos.x + playerRadius,
-      minZ: finalPos.z - playerRadius, maxZ: finalPos.z + playerRadius,
-      minY: finalPos.y,                 maxY: finalPos.y + playerHeight
+      minX: finalPos.x - playerRadius,
+      maxX: finalPos.x + playerRadius,
+      minZ: finalPos.z - playerRadius,
+      maxZ: finalPos.z + playerRadius,
+      minY: finalPos.y,
+      maxY: finalPos.y + playerHeight
     };
     if (pBox.maxX > box.min.x && pBox.minX < box.max.x &&
         pBox.maxZ > box.min.z && pBox.minZ < box.max.z){
       if (finalPos.y < box.max.y && finalPos.y + playerHeight > box.min.y){
         const oldBox = {
-          minX: playerGroup.position.x - playerRadius, maxX: playerGroup.position.x + playerRadius,
-          minZ: playerGroup.position.z - playerRadius, maxZ: playerGroup.position.z + playerRadius
+          minX: playerGroup.position.x - playerRadius,
+          maxX: playerGroup.position.x + playerRadius,
+          minZ: playerGroup.position.z - playerRadius,
+          maxZ: playerGroup.position.z + playerRadius
         };
         if (!(oldBox.maxX > box.min.x && oldBox.minX < box.max.x)) finalPos.x = playerGroup.position.x;
         if (!(oldBox.maxZ > box.min.z && oldBox.minZ < box.max.z)) finalPos.z = playerGroup.position.z;
@@ -386,7 +416,7 @@ function update(dt){
 
   playerGroup.position.copy(finalPos);
 
-  // Shooting (Cooldown + Pool + Waffen-Config)
+  // Shooting
   fireCooldown = Math.max(0, fireCooldown - dt);
   if (fireHeld && fireCooldown === 0){
     const w = weapons[currentWeapon];
@@ -439,14 +469,6 @@ window.addEventListener('resize', ()=>{
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-
-// --- XR per-frame ---
-function onXRFrame(){
-  if (renderer.xr.isPresenting){
-    readXRInput(renderer.xr.getSession());
-  }
-}
 </script>
 </body>
 </html>
-
