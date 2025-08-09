@@ -56,8 +56,14 @@
         const gunMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
         const gun = new THREE.Mesh(gunGeometry, gunMaterial);
         gun.position.set(0, -0.1, -0.3); // Position in hand
-        gun.rotation.x = -Math.PI / 2;
+        // Rotated so the long side (barrel) points forward
+        gun.rotation.x = 0;
+        gun.rotation.y = 0;
+        gun.rotation.z = 0;
         controller1.add(gun);
+
+        // Store all collidable objects
+        const collidableObjects = [];
 
         // Shooting mechanics
         let bullets = [];
@@ -97,10 +103,11 @@
             );
             obstacle.position.set(
                 Math.random() * 20 - 10,
-                obstacle.scale.y / 2,
+                obstacle.geometry.parameters.height / 2,
                 Math.random() * 20 - 10
             );
             scene.add(obstacle);
+            collidableObjects.push(obstacle);
         }
 
         // Central fortress (simple structure)
@@ -110,25 +117,34 @@
         const wall1 = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 0.5), wallMaterial);
         wall1.position.set(0, 1.5, 2.5);
         fortressGroup.add(wall1);
+        collidableObjects.push(wall1);
         const wall2 = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 0.5), wallMaterial);
         wall2.position.set(0, 1.5, -2.5);
         fortressGroup.add(wall2);
+        collidableObjects.push(wall2);
         const wall3 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 5), wallMaterial);
         wall3.position.set(2.5, 1.5, 0);
         fortressGroup.add(wall3);
+        collidableObjects.push(wall3);
         const wall4 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 5), wallMaterial);
         wall4.position.set(-2.5, 1.5, 0);
         fortressGroup.add(wall4);
+        collidableObjects.push(wall4);
         // Entrance (gap in front wall)
         // Roof
         const roof = new THREE.Mesh(new THREE.BoxGeometry(5, 0.5, 5), wallMaterial);
         roof.position.set(0, 3.25, 0);
         fortressGroup.add(roof);
+        collidableObjects.push(roof);
         // Interior floor
         const interiorFloor = new THREE.Mesh(new THREE.BoxGeometry(4, 0.1, 4), groundMaterial);
         interiorFloor.position.set(0, 0.05, 0);
         fortressGroup.add(interiorFloor);
+        collidableObjects.push(interiorFloor);
         scene.add(fortressGroup);
+        
+        // Add ground to collidable objects
+        collidableObjects.push(ground);
 
         // Sky with Halo ring (simple skybox and ring model)
         const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
@@ -152,6 +168,9 @@
         const gravity = -9.8 * 0.5; // Half Earth gravity
         let isJumping = false;
         let playerYRotation = 0; // Track player's Y rotation separately
+        
+        // Raycaster for collision detection
+        const raycaster = new THREE.Raycaster();
 
         // Controller grips for hands (optional visualization) - add to playerGroup
         const grip1 = renderer.xr.getControllerGrip(0);
@@ -241,25 +260,73 @@
                 velocity.z = 0;
             }
 
-            // Jumping and gravity
-            if (playerGroup.position.y > 0) {
-                velocity.y += gravity * 0.016; // Delta time approx
-            } else {
-                velocity.y = 0;
-                playerGroup.position.y = 0;
-                isJumping = false;
+            // Gravity
+            velocity.y += gravity * 0.016;
+            
+            // Calculate new position
+            const deltaPosition = velocity.clone().multiplyScalar(0.016);
+            const newPosition = playerGroup.position.clone().add(deltaPosition);
+            
+            // Check collision with ground and objects
+            const playerHeight = 1.6; // Height of player capsule
+            const playerRadius = 0.5;
+            let onGround = false;
+            let groundHeight = 0;
+            
+            // Check collision with all objects
+            for (const obj of collidableObjects) {
+                const box = new THREE.Box3().setFromObject(obj);
+                
+                // Check if player is above object and would land on it
+                if (newPosition.x + playerRadius > box.min.x && 
+                    newPosition.x - playerRadius < box.max.x &&
+                    newPosition.z + playerRadius > box.min.z && 
+                    newPosition.z - playerRadius < box.max.z) {
+                    
+                    // Check if we're falling onto this object
+                    if (newPosition.y <= box.max.y + playerHeight && 
+                        playerGroup.position.y >= box.max.y + playerHeight) {
+                        groundHeight = Math.max(groundHeight, box.max.y);
+                        onGround = true;
+                    }
+                }
             }
+            
+            // Apply position with collision
+            if (onGround && newPosition.y <= groundHeight + playerHeight) {
+                playerGroup.position.x = newPosition.x;
+                playerGroup.position.z = newPosition.z;
+                playerGroup.position.y = groundHeight;
+                velocity.y = 0;
+                isJumping = false;
+            } else {
+                playerGroup.position.add(deltaPosition);
+            }
+            
+            // Jumping
             if (jumpPressed && !isJumping) {
                 velocity.y = jumpSpeed;
                 isJumping = true;
             }
 
-            playerGroup.position.add(velocity.clone().multiplyScalar(0.016));
-
-            // Bullet update (use world position for spawning)
+            // Bullet update with collision detection
             bullets.forEach((bullet, index) => {
+                const oldPosition = bullet.position.clone();
                 bullet.position.add(bullet.velocity.clone().multiplyScalar(0.016));
-                if (bullet.position.length() > 100) {
+                
+                // Check collision with objects
+                const raycaster = new THREE.Raycaster(oldPosition, bullet.velocity.clone().normalize());
+                const intersects = raycaster.intersectObjects(collidableObjects);
+                
+                let hitSomething = false;
+                for (const intersect of intersects) {
+                    if (intersect.distance <= bullet.velocity.length() * 0.016) {
+                        hitSomething = true;
+                        break;
+                    }
+                }
+                
+                if (hitSomething || bullet.position.length() > 100) {
                     scene.remove(bullet);
                     bullets.splice(index, 1);
                 }
