@@ -268,9 +268,10 @@
             const deltaPosition = velocity.clone().multiplyScalar(0.016);
             const newPosition = playerGroup.position.clone().add(deltaPosition);
             
-            // Check collision with ground and objects
-            const playerHeight = 1.6; // Height of player capsule
+            // Collision detection
+            const playerHeight = 1.6;
             const playerRadius = 0.5;
+            let finalPosition = newPosition.clone();
             let onGround = false;
             let groundHeight = 0;
             
@@ -278,38 +279,72 @@
             for (const obj of collidableObjects) {
                 const box = new THREE.Box3().setFromObject(obj);
                 
-                // Check if player is above object and would land on it
-                if (newPosition.x + playerRadius > box.min.x && 
-                    newPosition.x - playerRadius < box.max.x &&
-                    newPosition.z + playerRadius > box.min.z && 
-                    newPosition.z - playerRadius < box.max.z) {
+                // Check if player overlaps with object horizontally
+                const playerBox = {
+                    minX: finalPosition.x - playerRadius,
+                    maxX: finalPosition.x + playerRadius,
+                    minZ: finalPosition.z - playerRadius,
+                    maxZ: finalPosition.z + playerRadius,
+                    minY: finalPosition.y,
+                    maxY: finalPosition.y + playerHeight
+                };
+                
+                // Horizontal collision check
+                if (playerBox.maxX > box.min.x && playerBox.minX < box.max.x &&
+                    playerBox.maxZ > box.min.z && playerBox.minZ < box.max.z) {
                     
-                    // Only snap to surface if falling from above and close to landing
-                    if (velocity.y <= 0 && // Falling down
-                        newPosition.y >= box.max.y && // Above the object
-                        newPosition.y <= box.max.y + Math.abs(velocity.y * 0.016) + 0.1) { // Close to surface
+                    // Vertical collision - standing on top
+                    if (velocity.y <= 0 && 
+                        playerGroup.position.y >= box.max.y &&
+                        finalPosition.y <= box.max.y + 0.1) {
                         groundHeight = Math.max(groundHeight, box.max.y);
                         onGround = true;
+                    }
+                    // Vertical collision - hitting from below
+                    else if (velocity.y > 0 && 
+                             playerGroup.position.y + playerHeight <= box.min.y &&
+                             finalPosition.y + playerHeight >= box.min.y) {
+                        finalPosition.y = box.min.y - playerHeight;
+                        velocity.y = 0;
+                    }
+                    // Horizontal collision - block movement
+                    else if (finalPosition.y < box.max.y && 
+                             finalPosition.y + playerHeight > box.min.y) {
+                        
+                        // Determine which axis to block based on previous position
+                        const oldBox = {
+                            minX: playerGroup.position.x - playerRadius,
+                            maxX: playerGroup.position.x + playerRadius,
+                            minZ: playerGroup.position.z - playerRadius,
+                            maxZ: playerGroup.position.z + playerRadius
+                        };
+                        
+                        // If we weren't overlapping horizontally before, block X movement
+                        if (!(oldBox.maxX > box.min.x && oldBox.minX < box.max.x)) {
+                            finalPosition.x = playerGroup.position.x;
+                        }
+                        // If we weren't overlapping in Z before, block Z movement
+                        if (!(oldBox.maxZ > box.min.z && oldBox.minZ < box.max.z)) {
+                            finalPosition.z = playerGroup.position.z;
+                        }
                     }
                 }
             }
             
-            // Check ground collision (y = 0)
-            if (newPosition.y <= 0 && velocity.y <= 0) {
+            // Ground collision (y = 0)
+            if (finalPosition.y <= 0 && velocity.y <= 0) {
                 groundHeight = Math.max(groundHeight, 0);
                 onGround = true;
             }
             
-            // Apply position with collision
+            // Apply final position
             if (onGround) {
-                playerGroup.position.x = newPosition.x;
-                playerGroup.position.z = newPosition.z;
-                playerGroup.position.y = groundHeight;
+                finalPosition.y = groundHeight;
                 velocity.y = 0;
                 isJumping = false;
-            } else {
-                playerGroup.position.add(deltaPosition);
             }
+            
+            playerGroup.position.copy(finalPosition);
             
             // Jumping
             if (jumpPressed && !isJumping) {
