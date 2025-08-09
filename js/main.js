@@ -1,4 +1,6 @@
-// Three.js wird über CDN geladen
+import * as THREE from 'three';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 
 class SpartanVRShooter {
     constructor() {
@@ -57,7 +59,7 @@ class SpartanVRShooter {
         document.body.appendChild(this.renderer.domElement);
         
         // VR Button zum Container hinzufügen
-        const vrButton = THREE.VRButton.createButton(this.renderer);
+        const vrButton = VRButton.createButton(this.renderer);
         vrButton.style.position = 'relative';
         vrButton.style.margin = '10px auto';
         vrButton.style.display = 'block';
@@ -102,7 +104,7 @@ class SpartanVRShooter {
     }
     
     setupControllers() {
-        const controllerModelFactory = new THREE.XRControllerModelFactory();
+        const controllerModelFactory = new XRControllerModelFactory();
         
         for (let i = 0; i < 2; i++) {
             const controller = this.renderer.xr.getController(i);
