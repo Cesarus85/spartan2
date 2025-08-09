@@ -32,6 +32,7 @@
 
         // Player setup (rig for locomotion)
         const playerGroup = new THREE.Group();
+        playerGroup.position.y = 1.6; // Start player above ground
         scene.add(playerGroup);
         // Camera is added to playerGroup; XR will update its local matrix
         playerGroup.add(camera);
@@ -283,9 +284,8 @@
                     newPosition.z + playerRadius > box.min.z && 
                     newPosition.z - playerRadius < box.max.z) {
                     
-                    // Check if we're falling onto this object
-                    if (newPosition.y <= box.max.y + playerHeight && 
-                        playerGroup.position.y >= box.max.y + playerHeight) {
+                    // Check if we're falling onto this object or already standing on it
+                    if (newPosition.y <= box.max.y + playerHeight) {
                         groundHeight = Math.max(groundHeight, box.max.y);
                         onGround = true;
                     }
@@ -300,7 +300,16 @@
                 velocity.y = 0;
                 isJumping = false;
             } else {
-                playerGroup.position.add(deltaPosition);
+                // Don't let player fall below ground level (y = 0)
+                if (newPosition.y < 0) {
+                    playerGroup.position.x = newPosition.x;
+                    playerGroup.position.z = newPosition.z;
+                    playerGroup.position.y = 0;
+                    velocity.y = 0;
+                    isJumping = false;
+                } else {
+                    playerGroup.position.add(deltaPosition);
+                }
             }
             
             // Jumping
