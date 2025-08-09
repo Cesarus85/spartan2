@@ -284,32 +284,31 @@
                     newPosition.z + playerRadius > box.min.z && 
                     newPosition.z - playerRadius < box.max.z) {
                     
-                    // Check if we're falling onto this object or already standing on it
-                    if (newPosition.y <= box.max.y + playerHeight) {
+                    // Only snap to surface if falling from above and close to landing
+                    if (velocity.y <= 0 && // Falling down
+                        newPosition.y >= box.max.y && // Above the object
+                        newPosition.y <= box.max.y + Math.abs(velocity.y * 0.016) + 0.1) { // Close to surface
                         groundHeight = Math.max(groundHeight, box.max.y);
                         onGround = true;
                     }
                 }
             }
             
+            // Check ground collision (y = 0)
+            if (newPosition.y <= 0 && velocity.y <= 0) {
+                groundHeight = Math.max(groundHeight, 0);
+                onGround = true;
+            }
+            
             // Apply position with collision
-            if (onGround && newPosition.y <= groundHeight + playerHeight) {
+            if (onGround) {
                 playerGroup.position.x = newPosition.x;
                 playerGroup.position.z = newPosition.z;
                 playerGroup.position.y = groundHeight;
                 velocity.y = 0;
                 isJumping = false;
             } else {
-                // Don't let player fall below ground level (y = 0)
-                if (newPosition.y < 0) {
-                    playerGroup.position.x = newPosition.x;
-                    playerGroup.position.z = newPosition.z;
-                    playerGroup.position.y = 0;
-                    velocity.y = 0;
-                    isJumping = false;
-                } else {
-                    playerGroup.position.add(deltaPosition);
-                }
+                playerGroup.position.add(deltaPosition);
             }
             
             // Jumping
