@@ -194,6 +194,20 @@
         
         // Raycaster for collision detection
         const raycaster = new THREE.Raycaster();
+        
+        // Downward raycast for ground detection
+        const downRay = new THREE.Raycaster();
+        const downDir = new THREE.Vector3(0,-1,0);
+
+        function clampToGround(pos, maxDrop = 3){
+            downRay.set(new THREE.Vector3(pos.x, pos.y + 1, pos.z), downDir);
+            const hits = downRay.intersectObjects([ground, interiorFloor, roof], true);
+            if (hits.length && hits[0].distance <= maxDrop) {
+                pos.y = pos.y + 1 - hits[0].distance; // auflegen
+                return true;
+            }
+            return false;
+        }
 
         // Controller grips for hands (optional visualization) - add to playerGroup
         const grip1 = renderer.xr.getControllerGrip(0);
@@ -286,11 +300,10 @@
             const playerHeight = 1.6;
             const playerRadius = 0.5;
             let finalPosition = newPosition.clone();
-            let onGround = false;
-            let groundHeight = 0;
             
-            // Check collision with all objects
-            for (const obj of collidableObjects) {
+            // Horizontal collision detection with walls/obstacles (keep existing logic but exclude ground meshes)
+            const wallObjects = collidableObjects.filter(obj => obj !== ground && obj !== interiorFloor && obj !== roof);
+            for (const obj of wallObjects) {
                 const box = new THREE.Box3().setFromObject(obj);
                 
                 // Check if player overlaps with object horizontally
@@ -307,17 +320,10 @@
                 if (playerBox.maxX > box.min.x && playerBox.minX < box.max.x &&
                     playerBox.maxZ > box.min.z && playerBox.minZ < box.max.z) {
                     
-                    // Vertical collision - standing on top
-                    if (velocity.y <= 0 && 
-                        playerGroup.position.y >= box.max.y &&
-                        finalPosition.y <= box.max.y + 0.1) {
-                        groundHeight = Math.max(groundHeight, box.max.y);
-                        onGround = true;
-                    }
                     // Vertical collision - hitting from below
-                    else if (velocity.y > 0 && 
-                             playerGroup.position.y + playerHeight <= box.min.y &&
-                             finalPosition.y + playerHeight >= box.min.y) {
+                    if (velocity.y > 0 && 
+                        playerGroup.position.y + playerHeight <= box.min.y &&
+                        finalPosition.y + playerHeight >= box.min.y) {
                         finalPosition.y = box.min.y - playerHeight;
                         velocity.y = 0;
                     }
@@ -345,15 +351,9 @@
                 }
             }
             
-            // Ground collision (y = 0)
-            if (finalPosition.y <= 0 && velocity.y <= 0) {
-                groundHeight = Math.max(groundHeight, 0);
-                onGround = true;
-            }
-            
-            // Apply final position
+            // Ground detection using downward raycast
+            const onGround = clampToGround(finalPosition);
             if (onGround) {
-                finalPosition.y = groundHeight;
                 velocity.y = 0;
                 isJumping = false;
             }
