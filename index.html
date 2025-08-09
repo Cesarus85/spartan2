@@ -13,7 +13,6 @@
     <script type="module">
         import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.179.0/build/three.module.min.js';
         import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.179.0/examples/jsm/webxr/VRButton.js';
-        // Removed GLTFLoader since it's not used; can add later if needed for models
 
         // Basic setup for WebXR with Three.js
         const scene = new THREE.Scene();
@@ -31,23 +30,26 @@
         directionalLight.position.set(5, 10, 5);
         scene.add(directionalLight);
 
-        // Player setup (Spartan armor - simplified as a capsule for now)
+        // Player setup (rig for locomotion)
         const playerGroup = new THREE.Group();
+        scene.add(playerGroup);
+        // Camera is added to playerGroup; XR will update its local matrix
+        playerGroup.add(camera);
+        // No manual camera.position set; XR handles head height
+
+        // Simplified Spartan body (positioned below camera - adjust based on head height)
         const playerBody = new THREE.Mesh(
             new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
             new THREE.MeshStandardMaterial({ color: 0x006400 }) // Green Spartan armor color
         );
+        playerBody.position.y = -1.6; // Approximate below head
         playerGroup.add(playerBody);
-        playerGroup.position.y = 1; // Eye height
-        scene.add(playerGroup);
-        camera.position.set(0, 1.6, 0); // Camera at head height
-        playerGroup.add(camera);
 
-        // Controllers
+        // Controllers added to playerGroup so they move with locomotion
         const controller1 = renderer.xr.getController(0); // Left controller
         const controller2 = renderer.xr.getController(1); // Right controller
-        scene.add(controller1);
-        scene.add(controller2);
+        playerGroup.add(controller1);
+        playerGroup.add(controller2);
 
         // Gun in left hand (simplified as a box for Master Chief's assault rifle)
         const gunGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.5);
@@ -65,9 +67,9 @@
                 new THREE.SphereGeometry(0.05, 8, 8),
                 new THREE.MeshBasicMaterial({ color: 0xff0000 })
             );
-            bullet.position.copy(controller1.position);
-            bullet.quaternion.copy(controller1.quaternion);
-            const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(controller1.quaternion);
+            bullet.position.copy(controller1.getWorldPosition(new THREE.Vector3()));
+            bullet.quaternion.copy(controller1.getWorldQuaternion(new THREE.Quaternion()));
+            const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(bullet.quaternion);
             bullet.velocity = direction.multiplyScalar(10); // Speed
             scene.add(bullet);
             bullets.push(bullet);
@@ -150,11 +152,11 @@
         const gravity = -9.8 * 0.5; // Half Earth gravity
         let isJumping = false;
 
-        // Controller grips for hands (optional visualization)
+        // Controller grips for hands (optional visualization) - add to playerGroup
         const grip1 = renderer.xr.getControllerGrip(0);
         const grip2 = renderer.xr.getControllerGrip(1);
-        scene.add(grip1);
-        scene.add(grip2);
+        playerGroup.add(grip1);
+        playerGroup.add(grip2);
 
         // Input handling
         const leftThumbstick = { x: 0, y: 0 };
@@ -179,7 +181,7 @@
             if (e.key === ' ') jumpPressed = false;
         });
 
-        // In VR, use gamepad axes
+        // In VR, use gamepad axes - for Quest, thumbstick is axes[2] and [3]
         function onXRFrame() {
             if (renderer.xr.isPresenting) {
                 const session = renderer.xr.getSession();
@@ -188,12 +190,12 @@
                     if (source.gamepad) {
                         const axes = source.gamepad.axes;
                         if (index === 0) { // Left controller
-                            leftThumbstick.x = axes[0] || 0; // Horizontal
-                            leftThumbstick.y = axes[1] || 0; // Vertical
+                            leftThumbstick.x = axes[2] || 0; // Thumbstick horizontal
+                            leftThumbstick.y = axes[3] || 0; // Thumbstick vertical
                         } else if (index === 1) { // Right controller
-                            rightThumbstick.x = axes[0] || 0; // Turn
-                            // A button for jump (assuming standard Quest mapping, button 0 is A)
-                            jumpPressed = source.gamepad.buttons[0]?.pressed || false;
+                            rightThumbstick.x = axes[2] || 0; // Thumbstick horizontal for turn
+                            // A button for jump (button[2] for A on right Quest controller)
+                            jumpPressed = source.gamepad.buttons[2]?.pressed || false;
                         }
                     }
                 });
@@ -206,7 +208,7 @@
 
             onXRFrame();
 
-            // Movement
+            // Movement (horizontal in camera XZ plane)
             direction.z = -leftThumbstick.y; // Forward/back
             direction.x = leftThumbstick.x; // Strafe
             direction.normalize();
@@ -214,7 +216,7 @@
             velocity.x = direction.x * moveSpeed;
             velocity.z = direction.z * moveSpeed;
 
-            // Turning
+            // Turning (smooth turn with right thumbstick)
             playerGroup.rotation.y -= rightThumbstick.x * 0.05; // Rotate speed
 
             // Jumping and gravity
@@ -232,7 +234,7 @@
 
             playerGroup.position.add(velocity.clone().multiplyScalar(0.016));
 
-            // Bullet update
+            // Bullet update (use world position for spawning)
             bullets.forEach((bullet, index) => {
                 bullet.position.add(bullet.velocity.clone().multiplyScalar(0.016));
                 if (bullet.position.length() > 100) {
