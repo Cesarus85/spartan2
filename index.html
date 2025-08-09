@@ -23,6 +23,9 @@
         document.body.appendChild(renderer.domElement);
         document.body.appendChild(VRButton.createButton(renderer));
 
+        // Clock for delta time
+        const clock = new THREE.Clock();
+
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         scene.add(ambientLight);
@@ -252,12 +255,8 @@
             }
         }
 
-        // Animation loop
-        function animate(time) {
-            renderer.setAnimationLoop(animate);
-
-            onXRFrame();
-
+        // Update function with delta time
+        function update(dt) {
             // Turning (smooth turn with right thumbstick) - update player rotation
             playerYRotation -= rightThumbstick.x * 0.05;
             playerGroup.rotation.y = playerYRotation;
@@ -281,10 +280,10 @@
             }
 
             // Gravity
-            velocity.y += gravity * 0.016;
+            velocity.y += gravity * dt;
             
             // Calculate new position
-            const deltaPosition = velocity.clone().multiplyScalar(0.016);
+            const deltaPosition = velocity.clone().multiplyScalar(dt);
             const newPosition = playerGroup.position.clone().add(deltaPosition);
             
             // Collision detection
@@ -374,7 +373,7 @@
             // Bullet update with collision detection
             bullets.forEach((bullet, index) => {
                 const oldPosition = bullet.position.clone();
-                bullet.position.add(bullet.velocity.clone().multiplyScalar(0.016));
+                bullet.position.add(bullet.velocity.clone().multiplyScalar(dt));
                 
                 // Check collision with objects
                 const raycaster = new THREE.Raycaster(oldPosition, bullet.velocity.clone().normalize());
@@ -382,7 +381,7 @@
                 
                 let hitSomething = false;
                 for (const intersect of intersects) {
-                    if (intersect.distance <= bullet.velocity.length() * 0.016) {
+                    if (intersect.distance <= bullet.velocity.length() * dt) {
                         hitSomething = true;
                         break;
                     }
@@ -393,10 +392,15 @@
                     bullets.splice(index, 1);
                 }
             });
-
-            renderer.render(scene, camera);
         }
-        animate();
+
+        // Animation loop with proper delta time
+        renderer.setAnimationLoop((time) => {
+            const dt = Math.min(clock.getDelta(), 1/30); // clamp für Ausreißer
+            onXRFrame();      // Eingaben lesen
+            update(dt);       // Physik/Bewegung/Schüsse
+            renderer.render(scene, camera);
+        });
 
         // Resize handling
         window.addEventListener('resize', () => {
