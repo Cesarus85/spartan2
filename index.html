@@ -2,40 +2,38 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>WebXR Halo-Style Shooter – Grundgerüst</title>
+  <title>WebXR Halo-Style Shooter – Fix</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; background: #0b0d10; }
     #ui {
       position: absolute; left: 12px; top: 12px; color: #dfe8ff; font-family: system-ui, sans-serif;
       background: rgba(10,12,16,.6); padding: 10px 12px; border-radius: 10px; backdrop-filter: blur(4px);
-      box-shadow: 0 6px 18px rgba(0,0,0,.35); max-width: 420px; line-height: 1.35;
+      box-shadow: 0 6px 18px rgba(0,0,0,.35); max-width: 420px; line-height: 1.35; z-index: 10;
     }
-    #ui small { opacity: .85; }
-    #stats { position: absolute; right: 12px; top: 12px; color: #cfe; font: 12px/1.2 monospace; }
+    #ui small { opacity: .85; display: block; margin-top: 6px; }
+    #stats { position: absolute; right: 12px; top: 12px; color: #cfe; font: 12px/1.2 monospace; white-space: pre; z-index: 10; }
     canvas { display: block; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <div><b>Halo-Style Shooter (Grundgerüst)</b></div>
+    <b>Halo-Style Shooter (Grundgerüst)</b>
     <small>
-      <div>🎯 Linker Trigger: Schießen</div>
-      <div>🕹️ Linker Stick: Vor/Zurück &amp; Strafen</div>
-      <div>🕹️ Rechter Stick: Drehen</div>
-      <div>🅰️ Rechte A-Taste: Springen</div>
-      <div>🌍 Map ~20×20, Festung in der Mitte (betretbar)</div>
+      🎯 Linker Trigger: Schießen • 🕹️ L-Stick: Vor/Zurück/Strafe • 🕹️ R-Stick: Drehen • 🅰️ Rechts: Springen
+      <br/>🌍 Map ~20×20, Festung mittig (Tor offen) • 🌌 Halo-Ring am Himmel
     </small>
   </div>
-  <div id="stats"></div>
+  <div id="stats">Init…</div>
 
   <script type="module">
-    // --- Imports (Three.js + Helpers) ---
     import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js";
     import { VRButton } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/webxr/VRButton.js";
     import { XRControllerModelFactory } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/webxr/XRControllerModelFactory.js";
 
-    // --- Renderer ---
+    const statsDiv = document.getElementById('stats');
+
+    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -44,22 +42,29 @@
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.xr.enabled = true;
     document.body.appendChild(renderer.domElement);
-    document.body.appendChild(VRButton.createButton(renderer, { requiredFeatures: ["local-floor"] }));
 
-    // --- Scene & Camera ---
+    // VR Button (ohne requiredFeatures, dafür optionalFeatures breit)
+    const btn = VRButton.createButton(renderer, {
+      optionalFeatures: ["local-floor","bounded-floor","hand-tracking","layers"]
+    });
+    document.body.appendChild(btn);
+
+    // Scene / Camera / Player
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x07090c);
 
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 200);
-    // "Player" Rig: bewegt den Nutzer im Raum
     const player = new THREE.Group();
     scene.add(player);
     player.add(camera);
 
-    // --- Lights ---
+    // Desktop-Startpose (Vorschau)
+    player.position.set(0, 0, 8.5);
+    player.rotation.set(0, Math.PI, 0);
+
+    // Lights
     const hemi = new THREE.HemisphereLight(0xbcd2ff, 0x101318, .55);
     scene.add(hemi);
-
     const dirLight = new THREE.DirectionalLight(0xffffff, .85);
     dirLight.position.set(12, 18, 7);
     dirLight.castShadow = true;
@@ -68,216 +73,143 @@
     dirLight.shadow.camera.top = 22; dirLight.shadow.camera.bottom = -22;
     scene.add(dirLight);
 
-    // --- Sky Halo Ring ---
-    const ringGeom = new THREE.TorusGeometry(40, 0.6, 16, 180);
-    const ringMat = new THREE.MeshStandardMaterial({
-      color: 0x6ea8ff, emissive: 0x143a62, emissiveIntensity: 0.4, metalness: 0.2, roughness: 0.6
-    });
-    const haloRing = new THREE.Mesh(ringGeom, ringMat);
+    // Halo-Ring
+    const haloRing = new THREE.Mesh(
+      new THREE.TorusGeometry(40, 0.6, 16, 180),
+      new THREE.MeshStandardMaterial({ color: 0x6ea8ff, emissive: 0x143a62, emissiveIntensity: 0.4, metalness: 0.2, roughness: 0.6 })
+    );
     haloRing.position.set(0, 30, -10);
     haloRing.rotation.set(Math.PI * 0.08, Math.PI * 0.15, 0);
-    haloRing.receiveShadow = false; haloRing.castShadow = false;
     scene.add(haloRing);
 
-    // --- Ground (20 x 20) ---
+    // Ground
     const MAP_SIZE = 20;
-    const groundGeom = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE, 1, 1);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x1a1f2a, roughness: 1.0, metalness: 0.0 });
-    const ground = new THREE.Mesh(groundGeom, groundMat);
-    ground.rotation.x = -Math.PI / 2;
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE),
+      new THREE.MeshStandardMaterial({ color: 0x1a1f2a, roughness: 1.0, metalness: 0.0 })
+    );
+    ground.rotation.x = -Math.PI/2;
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // --- Simple unevenness / obstacles ---
+    // Hindernisse
     const obstacles = [];
     function addBlock(x, z, w, h, d, color = 0x1f2633) {
-      const g = new THREE.BoxGeometry(w, h, d);
-      const m = new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.05 });
-      const mesh = new THREE.Mesh(g, m);
-      mesh.position.set(x, h/2, z);
-      mesh.castShadow = true; mesh.receiveShadow = true;
-      scene.add(mesh);
-      obstacles.push(mesh);
-      return mesh;
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(w, h, d),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.05 })
+      );
+      m.position.set(x, h/2, z);
+      m.castShadow = true; m.receiveShadow = true;
+      scene.add(m); obstacles.push(m); return m;
     }
-    // ein paar Hürden
     addBlock(-6, -4, 2, 1.2, 2);
     addBlock(5, 3, 3, 0.7, 3, 0x223044);
     addBlock(-2, 6, 2, 1.6, 4);
     addBlock(7, -6, 2, 2.2, 2, 0x24334a);
 
-    // --- Fortress in center with gate ---
-    const fortress = new THREE.Group();
-    scene.add(fortress);
-
+    // Festung
+    const fortress = new THREE.Group(); scene.add(fortress);
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x121720, roughness: 0.95, metalness: 0.05 });
-    const wallThickness = 0.6;
-    const fortSize = 8; // outer square
-    const fortHeight = 5;
-
-    // Walls (leave gate opening on south side)
-    const wallSegments = [
-      // west wall
+    const wallThickness = 0.6, fortSize = 8, fortHeight = 5;
+    [
       { pos:[-fortSize/2, fortHeight/2, 0], size:[wallThickness, fortHeight, fortSize] },
-      // east wall
       { pos:[ fortSize/2, fortHeight/2, 0], size:[wallThickness, fortHeight, fortSize] },
-      // north wall (full)
       { pos:[0, fortHeight/2, -fortSize/2], size:[fortSize, fortHeight, wallThickness] },
-      // south wall (two segments with gate)
       { pos:[-2.8, fortHeight/2,  fortSize/2], size:[fortSize/2 - 1.5, fortHeight, wallThickness] },
       { pos:[ 2.8, fortHeight/2,  fortSize/2], size:[fortSize/2 - 1.5, fortHeight, wallThickness] },
-    ];
-    wallSegments.forEach(s => {
-      const g = new THREE.BoxGeometry(...s.size);
-      const w = new THREE.Mesh(g, wallMat);
-      w.position.set(...s.pos);
-      w.castShadow = true; w.receiveShadow = true;
+    ].forEach(s=>{
+      const w = new THREE.Mesh(new THREE.BoxGeometry(...s.size), wallMat);
+      w.position.set(...s.pos); w.castShadow = true; w.receiveShadow = true;
       fortress.add(w); obstacles.push(w);
     });
-
-    // inner columns / mood
     for (let i=0;i<4;i++){
-      const col = addBlock((i<2?-1:1)*2.2, (i%2?-1:1)*2.2, 0.8, 3.6, 0.8, 0x0f141d);
-      fortress.add(col);
+      const c = addBlock((i<2?-1:1)*2.2, (i%2?-1:1)*2.2, 0.8, 3.6, 0.8, 0x0f141d);
+      fortress.add(c);
     }
 
-    // --- Simple Spartan body (player-visible chest) & left-hand rifle (procedural) ---
-    // Spartan torso so man "Rüstung" spürt (low poly)
-    const torso = new THREE.Mesh(
-      new THREE.BoxGeometry(0.35, 0.45, 0.2),
-      new THREE.MeshStandardMaterial({ color: 0x244b35, roughness: 0.8, metalness: 0.2 })
-    );
-    torso.position.set(0, -0.15, -0.35); // in front of head
-    torso.castShadow = true;
-    // Kopf minimal, nicht im Sichtfeld
-    const neck = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.09, 0.11, 0.14, 8),
-      new THREE.MeshStandardMaterial({ color: 0x1d2f27, roughness: 0.8 })
-    );
-    neck.position.set(0, 0.05, -0.34);
+    // Spartan Torso (sichtbar)
     const spartan = new THREE.Group();
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.35,0.45,0.2), new THREE.MeshStandardMaterial({ color: 0x244b35, roughness: 0.8, metalness: 0.2 }));
+    torso.position.set(0,-0.15,-0.35); torso.castShadow = true;
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.11,0.14,8), new THREE.MeshStandardMaterial({ color: 0x1d2f27, roughness: 0.8 }));
+    neck.position.set(0,0.05,-0.34);
     spartan.add(torso, neck);
     camera.add(spartan);
 
-    // --- Controllers & Models ---
+    // Controller
     const controllerModelFactory = new XRControllerModelFactory();
-
-    // We’ll dynamically map controllers by handedness
-    let leftCtrl = null, rightCtrl = null, leftGrip = null, rightGrip = null;
-
-    function makeController(index){
-      const c = renderer.xr.getController(index);
-      c.addEventListener('connected', (e) => {
-        const {handedness} = e.data;
-        if (handedness === 'left') leftCtrl = c;
-        if (handedness === 'right') rightCtrl = c;
-      });
-      c.addEventListener('disconnected', () => {
-        if (leftCtrl === c) leftCtrl = null;
-        if (rightCtrl === c) rightCtrl = null;
-      });
-      player.add(c);
-      return c;
+    let leftCtrl=null,rightCtrl=null,leftGrip=null,rightGrip=null;
+    function makeController(i){
+      const c = renderer.xr.getController(i);
+      c.addEventListener('connected', e=>{ const h=e.data.handedness; if(h==='left')leftCtrl=c; if(h==='right')rightCtrl=c; });
+      c.addEventListener('disconnected', ()=>{ if(leftCtrl===c)leftCtrl=null; if(rightCtrl===c)rightCtrl=null; });
+      player.add(c); return c;
     }
-    makeController(0);
-    makeController(1);
-
-    function makeGrip(index){
-      const g = renderer.xr.getControllerGrip(index);
-      const model = controllerModelFactory.createControllerModel(g);
-      g.add(model);
-      g.addEventListener('connected', (e) => {
-        const {handedness} = e.data;
-        if (handedness === 'left') leftGrip = g;
-        if (handedness === 'right') rightGrip = g;
-      });
-      g.addEventListener('disconnected', () => {
-        if (leftGrip === g) leftGrip = null;
-        if (rightGrip === g) rightGrip = null;
-      });
-      player.add(g);
-      return g;
+    function makeGrip(i){
+      const g = renderer.xr.getControllerGrip(i);
+      g.add(controllerModelFactory.createControllerModel(g));
+      g.addEventListener('connected', e=>{ const h=e.data.handedness; if(h==='left')leftGrip=g; if(h==='right')rightGrip=g; });
+      g.addEventListener('disconnected', ()=>{ if(leftGrip===g)leftGrip=null; if(rightGrip===g)rightGrip=null; });
+      player.add(g); return g;
     }
-    makeGrip(0);
-    makeGrip(1);
+    makeController(0); makeController(1); makeGrip(0); makeGrip(1);
 
-    // Procedurales "Battle Rifle" (simplifiziert) an linker Hand
+    // Linke-Hand-Gewehr (vereinfacht)
     const rifle = new THREE.Group();
-    (function buildRifle(){
-      const base = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.10),
-        new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: .7, metalness: .3 }));
-      base.position.set(0, 0, 0);
-
-      const stock = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.09, 0.12),
-        new THREE.MeshStandardMaterial({ color: 0x1e232b, roughness: .8 }));
-      stock.position.set(-0.28, -0.02, 0);
-
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.28, 12),
-        new THREE.MeshStandardMaterial({ color: 0x444b55, metalness: .6, roughness: .4 }));
-      barrel.rotation.z = Math.PI/2;
-      barrel.position.set(0.34, 0, 0);
-
-      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.06),
-        new THREE.MeshStandardMaterial({ color: 0x20242b, roughness: .8 }));
-      grip.position.set(-0.02, -0.09, 0.02);
-      grip.rotation.z = -0.35;
-
-      rifle.add(base, stock, barrel, grip);
-      rifle.castShadow = true;
+    (function(){
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.08,0.10), new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness:.7, metalness:.3 }));
+      const stock= new THREE.Mesh(new THREE.BoxGeometry(0.18,0.09,0.12), new THREE.MeshStandardMaterial({ color: 0x1e232b, roughness:.8 }));
+      const barrel=new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.018,0.28,12), new THREE.MeshStandardMaterial({ color: 0x444b55, metalness:.6, roughness:.4 }));
+      barrel.rotation.z = Math.PI/2; barrel.position.set(0.34,0,0);
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.12,0.06), new THREE.MeshStandardMaterial({ color: 0x20242b, roughness:.8 }));
+      grip.position.set(-0.02,-0.09,0.02); grip.rotation.z = -0.35;
+      rifle.add(base,stock,barrel,grip); rifle.castShadow = true;
     })();
-
-    // Wir hängen die Waffe an die linke Grip-Pose, sobald verfügbar
     const rifleHolder = new THREE.Group();
 
-    // --- Projectiles ---
-    const projectiles = [];
-    const MAX_PROJECTILES = 40;
+    renderer.xr.addEventListener('sessionstart', ()=>{
+      setTimeout(()=>{
+        if (leftGrip && !rifleHolder.parent){
+          rifleHolder.add(rifle);
+          rifle.position.set(0.02,-0.03,-0.03);
+          rifle.rotation.set(0, Math.PI, 0.12);
+          leftGrip.add(rifleHolder);
+        }
+      }, 300);
+      // Startpose im XR
+      player.position.set(0, 0, 8.5);
+      player.rotation.set(0, Math.PI, 0);
+    });
+
+    // Projektile
+    const projectiles=[]; const MAX_PROJECTILES=40;
     function spawnProjectile(origin, dir){
-      // Kugel als Schuss
-      const geo = new THREE.SphereGeometry(0.02, 12, 12);
-      const mat = new THREE.MeshStandardMaterial({ color: 0x78b3ff, emissive: 0x114477, emissiveIntensity: 0.5 });
-      const p = new THREE.Mesh(geo, mat);
+      const p = new THREE.Mesh(
+        new THREE.SphereGeometry(0.02, 12, 12),
+        new THREE.MeshStandardMaterial({ color: 0x78b3ff, emissive: 0x114477, emissiveIntensity: 0.5 })
+      );
       p.position.copy(origin);
       p.castShadow = true;
-      p.userData = { vel: dir.clone().multiplyScalar(18), life: 2.5 }; // 2.5s life, ~18 m/s
-      scene.add(p);
-      projectiles.push(p);
-      if (projectiles.length > MAX_PROJECTILES){
-        const old = projectiles.shift();
-        scene.remove(old); old.geometry.dispose(); old.material.dispose();
-      }
+      p.userData = { vel: dir.clone().multiplyScalar(18), life: 2.5 };
+      scene.add(p); projectiles.push(p);
+      if (projectiles.length>MAX_PROJECTILES){ const old=projectiles.shift(); scene.remove(old); old.geometry.dispose(); old.material.dispose(); }
     }
 
-    // --- Movement / Input ---
-    let velocityY = 0;
-    const GRAVITY = 4.0;    // geringer als Erde
-    const JUMP_VELOCITY = 2.2;
-    const MOVE_SPEED = 2.5; // m/s
-    const ROT_SPEED = 2.4;  // rad/s
-    const DEADZONE = 0.18;
+    // Movement
+    let velocityY=0;
+    const GRAVITY=4.0, JUMP_VELOCITY=2.2, MOVE_SPEED=2.5, ROT_SPEED=2.4, DEADZONE=0.18;
+    let jumpPressedPrev=false, triggerPressedPrev=false;
 
-    let jumpPressedPrev = false;
-    let triggerPressedPrev = false;
+    function getGamepad(ctrl){ return (ctrl && ctrl.gamepad) ? ctrl.gamepad : null; }
+    const dz = v=> Math.abs(v)<DEADZONE?0:v;
 
-    function getGamepad(ctrl){
-      if (!ctrl || !ctrl.gamepad) return null;
-      return ctrl.gamepad;
-    }
-
-    function applyDeadzone(v, dz=DEADZONE){
-      return Math.abs(v) < dz ? 0 : v;
-    }
-
-    // Simple collision: keep inside map bounds, stop on fortress/obstacle AABBs (loose)
     const tmpBox = new THREE.Box3();
     const playerRadius = 0.25;
-
     function collideAndSlide(nextPos){
-      // Bounds
-      const half = MAP_SIZE * 0.5 - 0.2;
+      const half = MAP_SIZE*0.5 - 0.2;
       nextPos.x = Math.max(-half, Math.min(half, nextPos.x));
       nextPos.z = Math.max(-half, Math.min(half, nextPos.z));
-      // Obstacles
       const playerBox = new THREE.Box3(
         new THREE.Vector3(nextPos.x - playerRadius, nextPos.y, nextPos.z - playerRadius),
         new THREE.Vector3(nextPos.x + playerRadius, nextPos.y + 1.7, nextPos.z + playerRadius)
@@ -285,165 +217,96 @@
       for (const o of obstacles){
         tmpBox.setFromObject(o);
         if (tmpBox.intersectsBox(playerBox)){
-          // push back on X/Z minimally
-          const center = tmpBox.getCenter(new THREE.Vector3());
-          const dx = nextPos.x - center.x;
-          const dz = nextPos.z - center.z;
-          if (Math.abs(dx) > Math.abs(dz)){
-            // push x
-            nextPos.x = (dx>0) ? tmpBox.max.x + playerRadius : tmpBox.min.x - playerRadius;
-          } else {
-            nextPos.z = (dz>0) ? tmpBox.max.z + playerRadius : tmpBox.min.z - playerRadius;
-          }
+          const c = tmpBox.getCenter(new THREE.Vector3());
+          const dx = nextPos.x - c.x, dzv = nextPos.z - c.z;
+          if (Math.abs(dx) > Math.abs(dzv)) nextPos.x = (dx>0) ? tmpBox.max.x + playerRadius : tmpBox.min.x - playerRadius;
+          else nextPos.z = (dzv>0) ? tmpBox.max.z + playerRadius : tmpBox.min.z - playerRadius;
         }
       }
       return nextPos;
     }
 
-    // --- Resize ---
-    window.addEventListener('resize', onResize, false);
-    function onResize(){
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    }
+    // Grid (Orientierung)
+    const grid = new THREE.GridHelper(MAP_SIZE, MAP_SIZE, 0x234, 0x123);
+    grid.position.y = 0.002; grid.material.opacity = 0.25; grid.material.transparent = true; scene.add(grid);
 
-    // --- Stats (very lightweight) ---
-    const statsDiv = document.getElementById('stats');
-    let lastFpsT = performance.now(), frameCount = 0, fps = 0;
+    // Loop
+    const forward = new THREE.Vector3(), right = new THREE.Vector3(), tmp = new THREE.Vector3();
+    const projDir = new THREE.Vector3(), muzzle = new THREE.Vector3();
+    let prevT = 0; // <-- FIX: dt via t
 
-    // --- Session Start: attach rifle when left grip exists ---
-    renderer.xr.addEventListener('sessionstart', () => {
-      // warte 300ms bis Controller gemappt sind
-      setTimeout(() => {
-        if (leftGrip && !rifleHolder.parent){
-          rifleHolder.add(rifle);
-          // Position/Rotation der Waffe relativ zur Hand (linke Hand hält sie "vorwärts")
-          rifle.position.set(0.02, -0.03, -0.03);
-          rifle.rotation.set(0, Math.PI, 0.12);
-          leftGrip.add(rifleHolder);
-        }
-      }, 300);
-      // Startposition
-      player.position.set(0, 0, 8.5); // Blick Richtung Festung
-      player.rotation.set(0, Math.PI, 0);
-    });
+    renderer.setAnimationLoop((t, frame)=>{
+      const dt = Math.min(0.033, ((t - prevT) || 16.6) / 1000);
+      prevT = t;
 
-    // --- Main Loop ---
-    const forward = new THREE.Vector3();
-    const right = new THREE.Vector3();
-    const tmp = new THREE.Vector3();
-    const projDir = new THREE.Vector3();
-    const muzzle = new THREE.Vector3();
+      // Stats
+      statsDiv.textContent = `XR: ${renderer.xr.isPresenting ? 'on' : 'off'}\nSupport: ${'xr' in navigator ? 'yes' : 'no'}\nProjectiles: ${projectiles.length}`;
 
-    renderer.setAnimationLoop((t, frame) => {
-      const dt = Math.min(0.033, renderer.xr.isPresenting ? renderer.xr.getFrame().deltaTime || 0.016 : 0.016); // ~clamp
-      frameCount++;
-      const now = performance.now();
-      if (now - lastFpsT > 500){
-        fps = Math.round((frameCount * 1000) / (now - lastFpsT));
-        statsDiv.textContent = `FPS: ${fps}\nProjectiles: ${projectiles.length}`;
-        lastFpsT = now; frameCount = 0;
-      }
+      // Input
+      const lgp = getGamepad(leftCtrl), rgp = getGamepad(rightCtrl);
+      let lx=0, ly=0, rx=0, trigger=false, jump=false;
 
-      // Movement Input
-      const lgp = getGamepad(leftCtrl);
-      const rgp = getGamepad(rightCtrl);
+      if (lgp?.axes?.length>=2){ lx = dz(lgp.axes[0]); ly = dz(lgp.axes[1]); }
+      if (rgp?.axes?.length>=2){ rx = dz(rgp.axes[2] ?? rgp.axes[0]); }
+      if (leftCtrl?.gamepad?.buttons?.length) trigger = !!leftCtrl.gamepad.buttons[0]?.pressed;
+      if (rightCtrl?.gamepad?.buttons?.length>4) jump = !!rightCtrl.gamepad.buttons[4]?.pressed; // Quest A
 
-      let lx = 0, ly = 0, rx = 0;
-      let triggerPressed = false, jumpPressed = false;
-
-      if (lgp && Array.isArray(lgp.axes) && lgp.axes.length >= 2){
-        lx = applyDeadzone(lgp.axes[0]); // strafe
-        ly = applyDeadzone(lgp.axes[1]); // forward/back (positive is usually forward negative? depends—normalize)
-      }
-      if (rgp && Array.isArray(rgp.axes) && rgp.axes.length >= 2){
-        rx = applyDeadzone(rgp.axes[2] ?? rgp.axes[0]); // some mappings put right stick at 2/3
-      }
-
-      // Buttons: trigger on left, A on right
-      if (leftCtrl && leftCtrl.gamepad && leftCtrl.gamepad.buttons.length > 0){
-        triggerPressed = !!leftCtrl.gamepad.buttons[0]?.pressed; // xr-standard: button[0] = trigger
-      }
-      if (rightCtrl && rightCtrl.gamepad && rightCtrl.gamepad.buttons.length > 4){
-        jumpPressed = !!rightCtrl.gamepad.buttons[4]?.pressed; // Quest A
-      }
-
-      // Rotation (smooth yaw) from right stick
+      // Rotation
       player.rotation.y -= rx * ROT_SPEED * dt;
 
-      // Forward/Right relative to camera yaw (flattened)
+      // Move (relativ zur Blickrichtung, Y=0)
       const camDir = camera.getWorldDirection(forward).setY(0).normalize();
       right.copy(camDir).cross(new THREE.Vector3(0,1,0)).normalize();
-
-      const moveVec = tmp.set(0,0,0);
-      moveVec.addScaledVector(camDir, -ly);  // stick up should move forward; many devices invert Y
-      moveVec.addScaledVector(right, lx);
-      if (moveVec.lengthSq() > 1e-6){
-        moveVec.normalize().multiplyScalar(MOVE_SPEED * dt);
-      }
+      const moveVec = tmp.set(0,0,0).addScaledVector(camDir, -ly).addScaledVector(right, lx);
+      if (moveVec.lengthSq()>1e-6) moveVec.normalize().multiplyScalar(MOVE_SPEED*dt);
 
       // Gravity / Jump
       let onGround = (player.position.y <= 0.0001);
       if (onGround) player.position.y = 0;
-      if (jumpPressed && !jumpPressedPrev && onGround){
-        velocityY = JUMP_VELOCITY;
-        onGround = false;
-      }
+      if (jump && !jumpPressedPrev && onGround){ velocityY = JUMP_VELOCITY; onGround=false; }
       velocityY -= GRAVITY * dt;
       player.position.y = Math.max(0, player.position.y + velocityY * dt);
       if (player.position.y === 0 && velocityY < 0) velocityY = 0;
+      jumpPressedPrev = jump;
 
-      // Apply horizontal movement with collision
+      // Kollisionsanwendung
       const nextPos = player.position.clone().add(moveVec);
       collideAndSlide(nextPos);
-      player.position.x = nextPos.x;
-      player.position.z = nextPos.z;
+      player.position.x = nextPos.x; player.position.z = nextPos.z;
 
-      jumpPressedPrev = jumpPressed;
-
-      // Shooting: left trigger edge
-      if (triggerPressed && !triggerPressedPrev && leftGrip){
-        // Mündung vor der Waffe berechnen
-        rifleHolder.getWorldPosition(muzzle);
-        // Richtung: aus linker Grip-Vorwärtsrichtung
+      // Schießen (Kante)
+      if (trigger && !triggerPressedPrev && leftGrip){
+        leftGrip.getWorldPosition(muzzle);
         leftGrip.getWorldDirection(projDir).normalize();
         spawnProjectile(muzzle.addScaledVector(projDir, 0.35), projDir);
       }
-      triggerPressedPrev = triggerPressed;
+      triggerPressedPrev = trigger;
 
-      // Update projectiles
-      for (let i = projectiles.length - 1; i >= 0; i--){
+      // Projektile
+      for (let i=projectiles.length-1;i>=0;i--){
         const p = projectiles[i];
         p.position.addScaledVector(p.userData.vel, dt);
         p.userData.life -= dt;
-        // simple ground hit / lifetime
         if (p.position.y < 0.01 || p.userData.life <= 0){
-          scene.remove(p);
-          p.geometry.dispose(); p.material.dispose();
-          projectiles.splice(i, 1);
+          scene.remove(p); p.geometry.dispose(); p.material.dispose(); projectiles.splice(i,1);
         }
       }
 
-      // Subtle animation: halo ring rotate
+      // Deko
       haloRing.rotation.y += 0.02 * dt;
 
       renderer.render(scene, camera);
     });
 
-    // --- XR Reference Space ---
+    // Resize
+    window.addEventListener('resize', ()=>{
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Referenzraum
     renderer.xr.setReferenceSpaceType("local-floor");
-
-    // --- Multiplayer hook (später) ---
-    // TODO: Netcode-Schicht (WebRTC/Signaling oder Colyseus). 
-    //       Repliziere: player transform, projectiles spawn events, basic lag compensation.
-    //       Daten-Sparsamkeit: 15–30 Hz transform updates, Projektil nur bei spawn mitteilen (client-side sim).
-
-    // --- Dev helpers: show map outline ---
-    const grid = new THREE.GridHelper(MAP_SIZE, MAP_SIZE, 0x234, 0x123);
-    grid.position.y = 0.002;
-    grid.material.opacity = 0.25; grid.material.transparent = true;
-    scene.add(grid);
   </script>
 </body>
 </html>
