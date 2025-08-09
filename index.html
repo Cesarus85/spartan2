@@ -65,7 +65,14 @@ gun.position.set(0,-0.1,-0.3);
 controllerLeft.add(gun);
 
 // --- Level: Boden, Hindernisse, Festung ---
-const collidableObjects = [];
+// NEU: Cache für statische Boxen
+const staticColliders = []; // { obj, box }
+
+// Helper
+function addStaticCollider(obj){
+  const box = new THREE.Box3().setFromObject(obj);
+  staticColliders.push({ obj, box });
+}
 
 const groundGeometry = new THREE.PlaneGeometry(20,20,20,20);
 groundGeometry.rotateX(-Math.PI/2);
@@ -79,6 +86,7 @@ groundGeometry.computeVertexNormals();
 const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, side: THREE.DoubleSide });
 const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 scene.add(ground);
+addStaticCollider(ground);
 
 // Hindernisse
 for (let i=0; i<10; i++){
@@ -88,7 +96,7 @@ for (let i=0; i<10; i++){
   );
   w.position.set(Math.random()*20-10, w.geometry.parameters.height/2, Math.random()*20-10);
   scene.add(w);
-  collidableObjects.push(w);
+  addStaticCollider(w);
 }
 
 // Festung
@@ -97,40 +105,37 @@ const wallMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
 
 const wall1Left = new THREE.Mesh(new THREE.BoxGeometry(1.5,3,0.5), wallMat);
 wall1Left.position.set(-1.75,1.5,2.5);
-fortressGroup.add(wall1Left); collidableObjects.push(wall1Left);
+fortressGroup.add(wall1Left); addStaticCollider(wall1Left);
 
 const wall1Right = new THREE.Mesh(new THREE.BoxGeometry(1.5,3,0.5), wallMat);
 wall1Right.position.set(1.75,1.5,2.5);
-fortressGroup.add(wall1Right); collidableObjects.push(wall1Right);
+fortressGroup.add(wall1Right); addStaticCollider(wall1Right);
 
 const lintel = new THREE.Mesh(new THREE.BoxGeometry(2,0.5,0.5), wallMat);
 lintel.position.set(0,2.75,2.5);
-fortressGroup.add(lintel); collidableObjects.push(lintel);
+fortressGroup.add(lintel); addStaticCollider(lintel);
 
 const wallBack = new THREE.Mesh(new THREE.BoxGeometry(5,3,0.5), wallMat);
 wallBack.position.set(0,1.5,-2.5);
-fortressGroup.add(wallBack); collidableObjects.push(wallBack);
+fortressGroup.add(wallBack); addStaticCollider(wallBack);
 
 const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(0.5,3,5), wallMat);
 wallLeft.position.set(2.5,1.5,0);
-fortressGroup.add(wallLeft); collidableObjects.push(wallLeft);
+fortressGroup.add(wallLeft); addStaticCollider(wallLeft);
 
 const wallRight = new THREE.Mesh(new THREE.BoxGeometry(0.5,3,5), wallMat);
 wallRight.position.set(-2.5,1.5,0);
-fortressGroup.add(wallRight); collidableObjects.push(wallRight);
+fortressGroup.add(wallRight); addStaticCollider(wallRight);
 
 const roof = new THREE.Mesh(new THREE.BoxGeometry(5,0.5,5), wallMat);
 roof.position.set(0,3.25,0);
-fortressGroup.add(roof); collidableObjects.push(roof);
+fortressGroup.add(roof); addStaticCollider(roof);
 
 const interiorFloor = new THREE.Mesh(new THREE.BoxGeometry(4,0.1,4), groundMaterial);
 interiorFloor.position.set(0,0.05,0);
-fortressGroup.add(interiorFloor); collidableObjects.push(interiorFloor);
+fortressGroup.add(interiorFloor); addStaticCollider(interiorFloor);
 
 scene.add(fortressGroup);
-
-// Boden gehört auch zu den möglichen Treffern
-collidableObjects.push(ground);
 
 // Himmel + Halo-Ring
 const sky = new THREE.Mesh(
@@ -287,10 +292,10 @@ function update(dt){
   const playerRadius = 0.5;
   let finalPos = newPos.clone();
 
-  const wallObjects = collidableObjects.filter(o => o !== ground && o !== interiorFloor && o !== roof);
-  for (const obj of wallObjects){
-    const box = new THREE.Box3().setFromObject(obj);
+  // Statt setFromObject pro Frame nutzen wir cached box:
+  const wallEntries = staticColliders.filter(e => e.obj !== ground && e.obj !== interiorFloor && e.obj !== roof);
 
+  for (const { box } of wallEntries){
     const pBox = {
       minX: finalPos.x - playerRadius,
       maxX: finalPos.x + playerRadius,
@@ -300,19 +305,15 @@ function update(dt){
       maxY: finalPos.y + playerHeight
     };
 
-    // horizontaler Überlappungs-Test
     if (pBox.maxX > box.min.x && pBox.minX < box.max.x &&
         pBox.maxZ > box.min.z && pBox.minZ < box.max.z){
 
-      // von unten anstoßen (Decke)
       if (vy > 0 &&
           playerGroup.position.y + playerHeight <= box.min.y &&
           finalPos.y + playerHeight >= box.min.y){
         finalPos.y = box.min.y - playerHeight;
         vy = 0;
-      }
-      // Seiten-Kollision blocken
-      else if (finalPos.y < box.max.y && finalPos.y + playerHeight > box.min.y){
+      } else if (finalPos.y < box.max.y && finalPos.y + playerHeight > box.min.y){
         const oldBox = {
           minX: playerGroup.position.x - playerRadius,
           maxX: playerGroup.position.x + playerRadius,
@@ -347,7 +348,7 @@ function update(dt){
     b.position.add(b.velocity.clone().multiplyScalar(dt));
 
     const ray = new THREE.Raycaster(old, b.velocity.clone().normalize());
-    const hits = ray.intersectObjects(collidableObjects);
+    const hits = ray.intersectObjects(staticColliders.map(e => e.obj));
     let hit = false;
     for (const h of hits){
       if (h.distance <= b.velocity.length() * dt) { hit = true; break; }
