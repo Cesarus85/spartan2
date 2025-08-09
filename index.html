@@ -65,13 +65,16 @@ gun.position.set(0,-0.1,-0.3);
 controllerLeft.add(gun);
 
 // --- Level: Boden, Hindernisse, Festung ---
-// NEU: Cache für statische Boxen
+// Cache für statische Boxen + explizit begehbare Meshes
 const staticColliders = []; // { obj, box }
+const walkableMeshes  = []; // echte Oberflächen, auf denen gelandet werden darf
 
-// Helper
 function addStaticCollider(obj){
   const box = new THREE.Box3().setFromObject(obj);
   staticColliders.push({ obj, box });
+}
+function addWalkable(obj){
+  walkableMeshes.push(obj);
 }
 
 const groundGeometry = new THREE.PlaneGeometry(20,20,20,20);
@@ -87,8 +90,9 @@ const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, side: T
 const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 scene.add(ground);
 addStaticCollider(ground);
+addWalkable(ground);
 
-// Hindernisse
+// Hindernisse (graue Blöcke → begehbar!)
 for (let i=0; i<10; i++){
   const w = new THREE.Mesh(
     new THREE.BoxGeometry(Math.random()*2+1, Math.random()*2+1, Math.random()*2+1),
@@ -97,6 +101,7 @@ for (let i=0; i<10; i++){
   w.position.set(Math.random()*20-10, w.geometry.parameters.height/2, Math.random()*20-10);
   scene.add(w);
   addStaticCollider(w);
+  addWalkable(w); // <— jetzt oben drauf landen möglich
 }
 
 // Festung
@@ -129,11 +134,11 @@ fortressGroup.add(wallRight); addStaticCollider(wallRight);
 
 const roof = new THREE.Mesh(new THREE.BoxGeometry(5,0.5,5), wallMat);
 roof.position.set(0,3.25,0);
-fortressGroup.add(roof); addStaticCollider(roof);
+fortressGroup.add(roof); addStaticCollider(roof); addWalkable(roof);
 
 const interiorFloor = new THREE.Mesh(new THREE.BoxGeometry(4,0.1,4), groundMaterial);
 interiorFloor.position.set(0,0.05,0);
-fortressGroup.add(interiorFloor); addStaticCollider(interiorFloor);
+fortressGroup.add(interiorFloor); addStaticCollider(interiorFloor); addWalkable(interiorFloor);
 
 scene.add(fortressGroup);
 
@@ -155,6 +160,11 @@ scene.add(haloRing);
 let moveAxis = {x:0, y:0}, turnAxis = {x:0, y:0};
 let jumpPressed = false;
 
+// Waffen/Feuer Eingaben
+let fireHeld = false;
+let rightBWasPressed = false; // für XR-Waffenwechsel (B-Button Heuristik)
+
+// Tastatur
 window.addEventListener('keydown', (e)=>{
   if (e.key==='w') moveAxis.y = -1;
   if (e.key==='s') moveAxis.y =  1;
@@ -162,15 +172,20 @@ window.addEventListener('keydown', (e)=>{
   if (e.key==='d') moveAxis.x =  1;
   if (e.key==='ArrowLeft')  turnAxis.x = -1;
   if (e.key==='ArrowRight') turnAxis.x =  1;
-  if (e.key===' ') jumpPressed = true;
+  if (e.key===' ') { jumpPressed = true; fireHeld = true; }
+
+  // Waffenwechsel per Tastatur
+  if (e.key === '1') currentWeapon = 0;
+  if (e.key === '2') currentWeapon = 1;
 });
 window.addEventListener('keyup', (e)=>{
   if (e.key==='w' || e.key==='s') moveAxis.y = 0;
   if (e.key==='a' || e.key==='d') moveAxis.x = 0;
   if (e.key==='ArrowLeft' || e.key==='ArrowRight') turnAxis.x = 0;
-  if (e.key===' ') jumpPressed = false;
+  if (e.key===' ') { jumpPressed = false; fireHeld = false; }
 });
 
+// XR-Input
 function readXRInput(session){
   moveAxis.x = moveAxis.y = 0;
   turnAxis.x = turnAxis.y = 0;
@@ -185,19 +200,36 @@ function readXRInput(session){
 
     if (source.handedness === 'left'){
       moveAxis.x = axX; moveAxis.y = axY;
+
+      // Trigger links = feuern (selectstart/selectend setzen fireHeld zusätzlich)
+      // hier optionales Fallback:
+      const triggerPressed = (buttons[0] && buttons[0].pressed) || false;
+      if (triggerPressed) fireHeld = true;
+
     } else if (source.handedness === 'right'){
       turnAxis.x = axX; turnAxis.y = axY;
-      // A-Button häufig index 4 (Quest) – hier als Heuristik:
+
+      // A-Button (häufig index 4) = springen (Heuristik)
       jumpPressed = buttons.some((b,i)=> i===4 ? b.pressed : false);
+
+      // B-Button (häufig index 5) = Waffenwechsel (Edge-Detection)
+      const bPressed = (buttons[5] && buttons[5].pressed) || false;
+      if (bPressed && !rightBWasPressed) {
+        currentWeapon = (currentWeapon + 1) % weapons.length;
+      }
+      rightBWasPressed = bPressed;
     }
   }
 }
-
 function onXRFrame(){
   if (renderer.xr.isPresenting){
     readXRInput(renderer.xr.getSession());
   }
 }
+
+// Zusätzliche XR-Events für feuern halten/loslassen
+controllerLeft.addEventListener('selectstart', ()=> { fireHeld = true; });
+controllerLeft.addEventListener('selectend',   ()=> { fireHeld = false; });
 
 // --- Movement / Physics ---
 const velocity = new THREE.Vector3();   // NUR für X/Z
@@ -211,7 +243,7 @@ let grounded = false;
 let coyoteTimer = 0;
 const COYOTE_MAX = 0.1;     // 100 ms Gnadenzeit
 const JUMP = 8;             // Sprung-Impuls
-const GRAV = -9.8 * 0.5;    // halbe Erdanziehung (wie vorher)
+const GRAV = -9.8 * 0.5;    // halbe Erdanziehung
 const PROBE = 0.25;         // Snap-Distanz
 
 const downRay = new THREE.Raycaster();
@@ -220,7 +252,7 @@ const downDir = new THREE.Vector3(0,-1,0);
 function landIfGroundClose(pos){
   // leicht oberhalb casten, damit wir zuverlässig treffen
   downRay.set(new THREE.Vector3(pos.x, pos.y + 0.2, pos.z), downDir);
-  const hits = downRay.intersectObjects([ground, interiorFloor, roof], true);
+  const hits = downRay.intersectObjects(walkableMeshes, true);
   if (!hits.length) return false;
   const hit = hits[0];
 
@@ -235,24 +267,45 @@ function landIfGroundClose(pos){
   return false;
 }
 
-// --- Shooting ---
+// --- Shooting: Schritt B (Waffen + Pool) ---
+const weapons = [
+  { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10 }, // 10/s
+  { name: 'BR', speed: 28, radius: 0.03, color: 0xff6a00, fireRate: 5  }, // 5/s
+];
+let currentWeapon = 0;
+let fireCooldown = 0;
+
+const bulletPool = [];
 const bullets = [];
-controllerLeft.addEventListener('selectstart', ()=>{
-  const bullet = new THREE.Mesh(
-    new THREE.SphereGeometry(0.05,8,8),
-    new THREE.MeshBasicMaterial({ color: 0xff0000 })
-  );
-  bullet.position.copy(controllerLeft.getWorldPosition(new THREE.Vector3()));
-  bullet.quaternion.copy(controllerLeft.getWorldQuaternion(new THREE.Quaternion()));
-  const dir = new THREE.Vector3(0,0,-1).applyQuaternion(bullet.quaternion);
-  bullet.velocity = dir.multiplyScalar(10);
-  scene.add(bullet);
-  bullets.push(bullet);
-});
+
+function acquireBullet(radius, color){
+  let m = bulletPool.pop();
+  if (!m){
+    m = new THREE.Mesh(
+      new THREE.SphereGeometry(radius, 8, 8),
+      new THREE.MeshBasicMaterial({ color })
+    );
+  } else {
+    // ggf. Geometrie/Material anpassen
+    if (!m.geometry.parameters || m.geometry.parameters.radius !== radius){
+      m.geometry.dispose();
+      m.geometry = new THREE.SphereGeometry(radius, 8, 8);
+    }
+    m.material.color.setHex(color);
+  }
+  m.visible = true;
+  return m;
+}
+function releaseBullet(m){
+  m.visible = false;
+  m.position.set(0,-999,0);
+  if (m.velocity) m.velocity.set(0,0,0);
+  bulletPool.push(m);
+}
 
 // --- Update ---
 function update(dt){
-  // Turning
+  // Turning (smooth; Snap-Turn kommt später als Option)
   playerYRotation -= turnAxis.x * 0.05;
   playerGroup.rotation.y = playerYRotation;
 
@@ -341,20 +394,40 @@ function update(dt){
   // Position anwenden
   playerGroup.position.copy(finalPos);
 
+  // --- Schießen (Cooldown + Pool + Waffen-Config) ---
+  fireCooldown = Math.max(0, fireCooldown - dt);
+  if (fireHeld && fireCooldown === 0){
+    const w = weapons[currentWeapon];
+    fireCooldown = 1 / w.fireRate;
+
+    const bullet = acquireBullet(w.radius, w.color);
+    const origin = controllerLeft.getWorldPosition(new THREE.Vector3());
+    const quat   = controllerLeft.getWorldQuaternion(new THREE.Quaternion());
+    bullet.position.copy(origin);
+    bullet.quaternion.copy(quat);
+
+    const dir = new THREE.Vector3(0,0,-1).applyQuaternion(quat).normalize();
+    bullet.velocity = dir.multiplyScalar(w.speed);
+    scene.add(bullet);
+    bullets.push(bullet);
+  }
+
   // --- Bullets updaten (rückwärts iterieren, robust gegen splice) ---
   for (let i = bullets.length - 1; i >= 0; i--){
     const b = bullets[i];
     const old = b.position.clone();
-    b.position.add(b.velocity.clone().multiplyScalar(dt));
+    b.position.addScaledVector(b.velocity, dt);
 
+    // Kollisionscheck via Ray vom alten zum neuen Punkt
     const ray = new THREE.Raycaster(old, b.velocity.clone().normalize());
+    const dist = b.velocity.length() * dt;
+    ray.far = dist;
     const hits = ray.intersectObjects(staticColliders.map(e => e.obj));
-    let hit = false;
-    for (const h of hits){
-      if (h.distance <= b.velocity.length() * dt) { hit = true; break; }
-    }
-    if (hit || b.position.length() > 100){
+    const hit = hits.length > 0;
+
+    if (hit || b.position.length() > 150){
       scene.remove(b);
+      releaseBullet(b);
       bullets.splice(i,1);
     }
   }
