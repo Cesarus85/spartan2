@@ -246,7 +246,9 @@ export function buildLevel(scene) {
 
     const obstacle = new THREE.Mesh(geometry, material);
 
-    const size = geometry.boundingBox || new THREE.Box3().setFromGeometry(geometry);
+    // Berechne Bounding Box korrekt
+    geometry.computeBoundingBox();
+    const size = geometry.boundingBox;
     const sizeVec = size.getSize(new THREE.Vector3());
     const hx = sizeVec.x / 2;
     const hy = sizeVec.y / 2;
