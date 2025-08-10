@@ -32,7 +32,7 @@ export function createCombat(scene, player, staticColliders) {
   function releaseBullet(m) {
     m.visible = false;
     m.position.set(0, -999, 0);
-    if (m.velocity) m.velocity.set(0, 0, 0);
+    if (m.velocity) m.velocity.set(0,0,0);
     bulletPool.push(m);
   }
 
@@ -47,32 +47,19 @@ export function createCombat(scene, player, staticColliders) {
       const w = weapons[currentWeapon];
       fireCooldown = 1 / w.fireRate;
 
-// ALT (bitte ersetzen):
-// const ctrl = (settings.weaponHand === 'left') ? player.controllerLeft : player.controllerRight;
-// const bullet = acquireBullet(w.radius, w.color);
-// const origin = ctrl.getWorldPosition(new THREE.Vector3());
-// const quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
-// bullet.position.copy(origin);
-// bullet.quaternion.copy(quat);
-// const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
+      const bullet = acquireBullet(w.radius, w.color);
 
+      // Mündungs-Offset: etwas tiefer & vorne am Gun-Mesh
+      const muzzleLocal = new THREE.Vector3(0, -0.05, -0.27);
+      const muzzleWorld = player.gun.localToWorld(muzzleLocal.clone());
+      bullet.position.copy(muzzleWorld);
 
-// NEU:
-const bullet = acquireBullet(w.radius, w.color);
+      const gunQuat = player.gun.getWorldQuaternion(new THREE.Quaternion());
+      bullet.quaternion.copy(gunQuat);
 
-// Mündung direkt am Gun-Mesh: leicht nach unten & vorne
-// Lokaler Punkt am Lauf (Z nach vorne = -Z), kleine Absenkung in Y
-const muzzleLocal = new THREE.Vector3(0, -0.03, -0.25);
-const muzzleWorld = player.gun.localToWorld(muzzleLocal.clone());
-bullet.position.copy(muzzleWorld);
-
-// Richtung = Gun-Vorwärtsvektor
-const gunQuat = player.gun.getWorldQuaternion(new THREE.Quaternion());
-bullet.quaternion.copy(gunQuat);
-
-const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(gunQuat).normalize();
-
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(gunQuat).normalize();
       bullet.velocity = dir.multiplyScalar(w.speed);
+
       scene.add(bullet);
       bullets.push(bullet);
     }
