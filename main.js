@@ -34,6 +34,14 @@ const { staticColliders, walkableMeshes } = buildLevel(scene);
 const player = createPlayer(renderer);
 scene.add(player.group);
 
+// Waffe initial an die Standard-Hand (links) hängen
+player.attachGunTo(settings.weaponHand);
+
+// Zusätzliche Absicherung: beim Eintritt in die XR-Session erneut anhängen
+renderer.xr.addEventListener('sessionstart', () => {
+player.attachGunTo(settings.weaponHand);
+});
+
 // Combat
 const combat = createCombat(scene, player, staticColliders);
 
