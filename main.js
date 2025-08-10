@@ -1,92 +1,86 @@
-// main.js
-import { THREE, VRButton } from './deps.js';
-import { FOG, buildLevel } from './level.js';
-import { createPlayer } from './player.js';
-import { createCombat } from './combat.js';
-import { initKeyboard, initOverlay, initHUD, readXRInput, getInputState, settings, refreshHUD } from './input.js';
-import { createAIManager } from './ai.js';
+// combat.js
+import { THREE } from './deps.js';
 
+export function createCombat(scene, player, staticColliders) {
+  const weapons = [
+    { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10 },
+    { name: 'BR', speed: 28, radius: 0.03, color: 0xff6a00, fireRate: 5  },
+  ];
+  let currentWeapon = 0;
+  let fireCooldown = 0;
 
-// Renderer/Scene
-const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(FOG.COLOR, FOG.NEAR, FOG.FAR);
+  const bulletPool = [];
+  const bullets = [];
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.xr.enabled = true;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
-renderer.setClearColor(FOG.COLOR, 1);
-document.body.appendChild(renderer.domElement);
-document.body.appendChild(VRButton.createButton(renderer));
-
-const clock = new THREE.Clock();
-
-// Lights
-scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-dirLight.position.set(5, 10, 5);
-scene.add(dirLight);
-
-// Level
-const { staticColliders, walkableMeshes } = buildLevel(scene);
-
-// Player
-const player = createPlayer(renderer);
-scene.add(player.group);
-
-// Combat
-const combat = createCombat(scene, player, staticColliders);
-
-// AI Manager
-const ai = createAIManager(scene, player, staticColliders, walkableMeshes);
-
-// Input
-initKeyboard();
-initOverlay((newHand) => { player.attachGunTo(newHand); refreshHUD(); });
-initHUD(player.camera, player.controllerRight, () => combat.cycleWeapon(), (newHand) => { player.attachGunTo(newHand); });
-
-// Resize
-window.addEventListener('resize', () => {
-  player.onResize(window.innerWidth, window.innerHeight);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// Fixed-Timestep Loop
-const FIXED_DT = 1/60;
-const MAX_STEPS = 5;
-let accumulator = 0;
-
-function onXRFrame() {
-  if (renderer.xr.isPresenting) {
-    const session = renderer.xr.getSession();
-    readXRInput(session);
+  function acquireBullet(radius, color){
+    let m = bulletPool.pop();
+    if (!m){
+      m = new THREE.Mesh(
+        new THREE.SphereGeometry(radius, 8, 8),
+        new THREE.MeshBasicMaterial({ color })
+      );
+    } else {
+      if (!m.geometry.parameters || m.geometry.parameters.radius !== radius){
+        m.geometry.dispose();
+        m.geometry = new THREE.SphereGeometry(radius, 8, 8);
+      }
+      m.material.color.setHex(color);
+    }
+    m.visible = true;
+    return m;
   }
-}
-
-function onRenderFrame() {
-  const rawDt = clock.getDelta();
-  const dt = Math.min(rawDt, 0.25);
-  onXRFrame();
-
-  accumulator += dt;
-  let steps = 0;
-  while (accumulator >= FIXED_DT && steps < MAX_STEPS) {
-    const input = getInputState();
-    // Player Update (inkl. Snap-Turn delta aus input)
-    player.update(FIXED_DT, input, staticColliders, walkableMeshes, settings.turnMode, settings.snapAngleDeg);
-    // Combat Update
-    combat.update(FIXED_DT, input, settings);
-
-    // AI Update
-    ai.update(FIXED_DT);
-
-    accumulator -= FIXED_DT;
-    steps++;
+  function releaseBullet(m){
+    m.visible = false;
+    m.position.set(0,-999,0);
+    if (m.velocity) m.velocity.set(0,0,0);
+    bulletPool.push(m);
   }
 
-  renderer.render(scene, player.camera);
-}
+  function cycleWeapon() {
+    currentWeapon = (currentWeapon + 1) % weapons.length;
+  }
 
-renderer.setAnimationLoop(onRenderFrame);
+  function update(dt, input, settings) {
+    fireCooldown = Math.max(0, fireCooldown - dt);
+
+    if (input.fireHeld && fireCooldown === 0){
+      const w = weapons[currentWeapon];
+      fireCooldown = 1 / w.fireRate;
+
+      const ctrl = (settings.weaponHand === 'left') ? player.controllerLeft : player.controllerRight;
+      const bullet = acquireBullet(w.radius, w.color);
+      const origin = ctrl.getWorldPosition(new THREE.Vector3());
+      const quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
+      bullet.position.copy(origin);
+      bullet.quaternion.copy(quat);
+
+      const dir = new THREE.Vector3(0,0,-1).applyQuaternion(quat).normalize();
+      bullet.velocity = dir.multiplyScalar(w.speed);
+      scene.add(bullet);
+      bullets.push(bullet);
+    }
+
+    const staticObjs = staticColliders.map(e => e.obj);
+    for (let i = bullets.length - 1; i >= 0; i--){
+      const b = bullets[i];
+      const old = b.position.clone();
+      b.position.addScaledVector(b.velocity, dt);
+
+      const ray = new THREE.Raycaster(old, b.velocity.clone().normalize());
+      const dist = b.velocity.length() * dt;
+      ray.far = dist;
+      const hits = ray.intersectObjects(staticObjs);
+      if (hits.length || b.position.length() > 150){
+        scene.remove(b);
+        releaseBullet(b);
+        bullets.splice(i,1);
+      }
+    }
+  }
+
+  return {
+    update,
+    cycleWeapon,
+    get currentWeapon() { return currentWeapon; }
+  };
+}
