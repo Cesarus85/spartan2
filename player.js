@@ -110,21 +110,23 @@ export function createPlayer(renderer) {
   // naive collision against static AABBs (boxes)
   const _box = new THREE.Box3();
   function collideCapsuleAABBs(staticColliders) {
-    // treat player as cylinder for simplicity
+    // treat player as cylinder for simplicity (feet-level sphere)
     const radius = 0.45;
+    const feetY = group.position.y - 0.9;
+    const sphere = new THREE.Sphere(new THREE.Vector3(group.position.x, feetY, group.position.z), radius);
     for (let i = 0; i < staticColliders.length; i++) {
-      const b = staticColliders[i];
-      if (!b) continue;
-      if (b.intersectsSphere(new THREE.Sphere(new THREE.Vector3(group.position.x, group.position.y - 0.9, group.position.z), radius))) {
-        // push out in the smallest axis direction
-        // compute closest point in box to player center at feet height
-        _box.copy(b);
+      const entry = staticColliders[i];
+      if (!entry || !entry.box) continue;
+      const box = entry.box;
+      if (box.intersectsSphere(sphere)) {
+        // push out along smallest axis from closest point
+        _box.copy(box);
         const p = new THREE.Vector3(
           THREE.MathUtils.clamp(group.position.x, _box.min.x, _box.max.x),
-          THREE.MathUtils.clamp(group.position.y - 0.9, _box.min.y, _box.max.y),
-          THREE.MathUtils.clamp(group.position.z, _box.min.z, _box.max.z),
+          THREE.MathUtils.clamp(feetY, _box.min.y, _box.max.y),
+          THREE.MathUtils.clamp(group.position.z, _box.min.z, _box.max.z)
         );
-        const delta = new THREE.Vector3(group.position.x, group.position.y - 0.9, group.position.z).sub(p);
+        const delta = new THREE.Vector3(group.position.x, feetY, group.position.z).sub(p);
         const len = delta.length() || 1e-6;
         const push = radius - len;
         if (push > 0) {

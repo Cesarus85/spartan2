@@ -68,16 +68,12 @@ export function createCombat(scene, player, staticColliders) {
       const b = bullets[i];
       b.position.addScaledVector(b.userData.vel, dt);
 
-      // ray ahead for hit
-      const ahead = tmp.copy(b.userData.vel).normalize().multiplyScalar(b.userData.radius * 1.5);
-      ray.set(b.position, ahead.normalize());
+      // simple point-in-box hit check (quick & cheap)
       let hit = false;
       for (let j = 0; j < staticColliders.length && !hit; j++) {
-        const box = staticColliders[j];
-        // simple sphere vs box
-        if (box.containsPoint(b.position)) {
-          hit = true; break;
-        }
+        const entry = staticColliders[j]; const box = entry && entry.box ? entry.box : null;
+        if (!box) continue;
+        if (box.containsPoint(b.position)) hit = true;
       }
       if (hit || b.position.length() > 150) {
         scene.remove(b);
