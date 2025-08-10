@@ -18,4 +18,3 @@ export function makeVariedStandardMaterial(baseColorHex) {
 export function randBetween(min, max) {
   return Math.random() * (max - min) + min;
 }
-

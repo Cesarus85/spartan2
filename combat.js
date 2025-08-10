@@ -12,15 +12,15 @@ export function createCombat(scene, player, staticColliders) {
   const bulletPool = [];
   const bullets = [];
 
-  function acquireBullet(radius, color){
+  function acquireBullet(radius, color) {
     let m = bulletPool.pop();
-    if (!m){
+    if (!m) {
       m = new THREE.Mesh(
         new THREE.SphereGeometry(radius, 8, 8),
         new THREE.MeshBasicMaterial({ color })
       );
     } else {
-      if (!m.geometry.parameters || m.geometry.parameters.radius !== radius){
+      if (!m.geometry.parameters || m.geometry.parameters.radius !== radius) {
         m.geometry.dispose();
         m.geometry = new THREE.SphereGeometry(radius, 8, 8);
       }
@@ -29,10 +29,10 @@ export function createCombat(scene, player, staticColliders) {
     m.visible = true;
     return m;
   }
-  function releaseBullet(m){
+  function releaseBullet(m) {
     m.visible = false;
-    m.position.set(0,-999,0);
-    if (m.velocity) m.velocity.set(0,0,0);
+    m.position.set(0, -999, 0);
+    if (m.velocity) m.velocity.set(0, 0, 0);
     bulletPool.push(m);
   }
 
@@ -43,29 +43,25 @@ export function createCombat(scene, player, staticColliders) {
   function update(dt, input, settings) {
     fireCooldown = Math.max(0, fireCooldown - dt);
 
-    if (input.fireHeld && fireCooldown === 0){
+    if (input.fireHeld && fireCooldown === 0) {
       const w = weapons[currentWeapon];
       fireCooldown = 1 / w.fireRate;
 
       const ctrl = (settings.weaponHand === 'left') ? player.controllerLeft : player.controllerRight;
       const bullet = acquireBullet(w.radius, w.color);
-
-      // Mündungs-Offset: leicht tiefer und vor den Controller
-      const muzzleLocal = new THREE.Vector3(0, -0.05, -0.27);
-      const muzzleWorld = ctrl.localToWorld(muzzleLocal.clone());
-
-      bullet.position.copy(muzzleWorld);
+      const origin = ctrl.getWorldPosition(new THREE.Vector3());
       const quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
+      bullet.position.copy(origin);
       bullet.quaternion.copy(quat);
 
-      const dir = new THREE.Vector3(0,0,-1).applyQuaternion(quat).normalize();
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
       bullet.velocity = dir.multiplyScalar(w.speed);
       scene.add(bullet);
       bullets.push(bullet);
     }
 
     const staticObjs = staticColliders.map(e => e.obj);
-    for (let i = bullets.length - 1; i >= 0; i--){
+    for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
       const old = b.position.clone();
       b.position.addScaledVector(b.velocity, dt);
@@ -74,10 +70,10 @@ export function createCombat(scene, player, staticColliders) {
       const dist = b.velocity.length() * dt;
       ray.far = dist;
       const hits = ray.intersectObjects(staticObjs);
-      if (hits.length || b.position.length() > 150){
+      if (hits.length || b.position.length() > 150) {
         scene.remove(b);
         releaseBullet(b);
-        bullets.splice(i,1);
+        bullets.splice(i, 1);
       }
     }
   }
