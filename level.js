@@ -246,10 +246,11 @@ export function buildLevel(scene) {
 
     const obstacle = new THREE.Mesh(geometry, material);
 
-    // Berechne Bounding Box korrekt
-    geometry.computeBoundingBox();
-    const size = geometry.boundingBox;
-    const sizeVec = size.getSize(new THREE.Vector3());
+    // Berechne Bounding Box korrekt - HIER IST DIE LÖSUNG!
+    // Statt setFromGeometry verwenden wir setFromObject nach dem Mesh erstellt wurde
+    const tempMesh = new THREE.Mesh(geometry);
+    const tempBox = new THREE.Box3().setFromObject(tempMesh);
+    const sizeVec = tempBox.getSize(new THREE.Vector3());
     const hx = sizeVec.x / 2;
     const hy = sizeVec.y / 2;
     const hz = sizeVec.z / 2;
