@@ -2,165 +2,211 @@
 import { THREE } from './deps.js';
 import { makeVariedStandardMaterial } from './utils.js';
 
-const TMP_MAT4 = new THREE.Matrix4();
-const TMP_VEC3 = new THREE.Vector3();
-const TMP_QUAT = new THREE.Quaternion();
-const TMP_BOX3 = new THREE.Box3();
-
+/**
+ * Player factory. Returns camera rig, controllers and update() loop.
+ * Exposes a named 'muzzle' child on the gun so other systems (combat)
+ * can fetch its precise world transform for bullet spawning.
+ */
 export function createPlayer(renderer) {
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
+  // XR rig root
   const group = new THREE.Group();
-  // Start low; the caller will teleportTo() to a safe spawn
-  group.position.set(0, 1.65, 0);
+  // Start roughly above the arena center; y will be corrected by safeSpawn on first update
+  group.position.set(0, 3.25 + 1.6, 0);
   group.add(camera);
 
-  // Body (cheap visual)
+  // Body (capsule visual only)
   const body = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
     makeVariedStandardMaterial(0x006400)
   );
-  body.position.y = -1.6;
+  body.castShadow = false; body.receiveShadow = true;
+  body.position.set(0, 1.6, 0);
   group.add(body);
 
-  // XR controllers (we attach gun to chosen hand from main.js)
+  // Controllers
   const controllerLeft  = renderer.xr.getController(0);
   const controllerRight = renderer.xr.getController(1);
+  group.add(controllerLeft, controllerRight);
+
   const gripLeft  = renderer.xr.getControllerGrip(0);
   const gripRight = renderer.xr.getControllerGrip(1);
-  group.add(controllerLeft, controllerRight, gripLeft, gripRight);
+  group.add(gripLeft, gripRight);
 
-  // ---- Gun + muzzle --------------------------------------------------------
-  const gun = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.1, 0.5),
-    makeVariedStandardMaterial(0x808080)
+  // Very simple gun as child of a controller (attachable to either hand)
+  const gun = new THREE.Group();
+  gun.name = 'gun';
+  // Base block
+  const gunMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.06, 0.06, 0.34),
+    new THREE.MeshStandardMaterial({ color: 0x2b2f33, metalness: 0.1, roughness: 0.7 })
   );
-  gun.position.set(0, -0.04, -0.18);
-  const gunMuzzle = new THREE.Object3D();
-  gunMuzzle.position.set(0, 0, -0.25);
-  gun.add(gunMuzzle);
+  gunMesh.position.set(0, 0, -0.17);
+  gun.add(gunMesh);
+  // Barrel cylinder
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.015, 0.015, 0.18, 12),
+    new THREE.MeshStandardMaterial({ color: 0x3d4349, metalness: 0.2, roughness: 0.5 })
+  );
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 0, -0.35);
+  gun.add(barrel);
+  // Muzzle empty to be used for bullet spawn
+  const muzzle = new THREE.Object3D();
+  muzzle.name = 'muzzle';
+  // put it right at the barrel exit
+  muzzle.position.set(0, 0, -0.44);
+  gun.add(muzzle);
 
-  function attachGunTo(hand) {
-    gun.removeFromParent();
-    if (hand === 'right') controllerRight.add(gun);
-    else controllerLeft.add(gun);
-  }
-
-  function getMuzzlePose(outPos = new THREE.Vector3(), outQuat = new THREE.Quaternion()) {
-    // If gun is not attached yet, fallback to camera forward
-    if (!gun.parent) {
-      camera.updateWorldMatrix(true, false);
-      outPos.copy(camera.getWorldPosition(TMP_VEC3));
-      outQuat.copy(camera.getWorldQuaternion(TMP_QUAT));
-      return { pos: outPos, rot: outQuat };
+  // Which hand holds the gun by default is managed by input/settings; expose helper
+  function attachGunTo(handedness) {
+    if (handedness === 'left') {
+      controllerLeft.add(gun);
+    } else {
+      controllerRight.add(gun);
     }
-    gunMuzzle.updateWorldMatrix(true, false);
-    const mw = gunMuzzle.matrixWorld;
-    outPos.setFromMatrixPosition(mw);
-    mw.decompose(TMP_VEC3, outQuat, new THREE.Vector3());
-    return { pos: outPos, rot: outQuat };
   }
 
-  // ---- Movement / physics (Quest-light) -----------------------------------
-  const velocity = new THREE.Vector3(0,0,0);
-  const direction = new THREE.Vector3();
-  const moveSpeed = 5;
+  // --- Movement physics (lightweight) ---
+  const vel = new THREE.Vector3(0, 0, 0);
+  const tmp = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  const down = new THREE.Vector3(0, -1, 0);
+  const quat = new THREE.Quaternion();
 
-  const CAPSULE_RADIUS = 0.4;
-  const CAPSULE_HEIGHT = 1.6; // eye to feet
+  const capsuleHalfHeight = 1.6 * 0.5 + 0.75; // rough visual to collider alignment
+  const feetOffset = 0.05; // safety margin above ground when snapping
 
-  let vy = 0;
-  let grounded = false;
-  let coyoteTimer = 0;
-  const COYOTE_MAX = 0.1;
-  const JUMP = 8;
-  const GRAV = -9.8 * 0.5;
-  const PROBE = 0.25;
+  let spawnAdjusted = false; // will run safe spawn alignment once
+  let snapTurnCooldown = 0;
 
-  const STEP_HEIGHT = 0.35;
-
-  const downRay = new THREE.Raycaster();
-  const downDir = new THREE.Vector3(0, -1, 0);
-  const upRay   = new THREE.Raycaster();
-  const upDir   = new THREE.Vector3(0, 1, 0);
-
-  let playerYRotation = 0;
-
-  function landIfGroundClose(pos, walkables) {
-    downRay.set(new THREE.Vector3(pos.x, pos.y + 0.2, pos.z), downDir);
-    const hits = downRay.intersectObjects(walkables, true);
-    if (!hits.length) return false;
-    const hit = hits[0];
-    if (vy <= 0 && hit.distance <= (0.2 + PROBE)) {
-      pos.y = pos.y + 0.2 - hit.distance;
-      vy = 0; grounded = true; coyoteTimer = COYOTE_MAX;
-      return true;
+  function safeSpawn(walkableMeshes) {
+    // cast a ray down from the rig's current x/z, find first walkable hit
+    const ray = new THREE.Raycaster();
+    const origin = new THREE.Vector3(group.position.x, group.position.y + 2.0, group.position.z);
+    ray.set(origin, down);
+    const hits = ray.intersectObjects(walkableMeshes, false);
+    if (hits.length) {
+      const y = hits[0].point.y + capsuleHalfHeight + feetOffset;
+      group.position.y = y;
     }
-    return false;
   }
 
-  function ceilingBlock(pos, walkables) {
-    upRay.set(new THREE.Vector3(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z), upDir);
-    const hits = upRay.intersectObjects(walkables, true);
-    if (!hits.length) return;
-    const hit = hits[0];
-    if (hit.distance < 0.05) vy = Math.min(vy, 0);
+  function applySnapOrSmoothTurn(dt, input, turnMode, snapAngleDeg) {
+    if (turnMode === 'snap') {
+      if (input.snapTurnDelta !== 0 && snapTurnCooldown <= 0) {
+        group.rotateOnWorldAxis(up, THREE.MathUtils.degToRad(input.snapTurnDelta));
+        snapTurnCooldown = 0.18; // small cooldown to avoid rapid repeat
+      }
+      if (snapTurnCooldown > 0) snapTurnCooldown -= dt;
+    } else {
+      // smooth turn with right x-axis
+      const yawSpeed = 1.8; // rad/s
+      group.rotateOnWorldAxis(up, yawSpeed * input.turnAxis.x * dt);
+    }
   }
 
-  function resolveStaticCollision(pos, staticColliders) {
-    let corrected = false;
-    const feetY = pos.y - CAPSULE_HEIGHT * 0.5;
-    const headY = pos.y + CAPSULE_HEIGHT * 0.5;
-    for (let i=0;i<staticColliders.length;i++) {
-      const { box } = staticColliders[i];
-      TMP_BOX3.min.set(box.min.x - CAPSULE_RADIUS, box.min.y, box.min.z - CAPSULE_RADIUS);
-      TMP_BOX3.max.set(box.max.x + CAPSULE_RADIUS, box.max.y, box.max.z + CAPSULE_RADIUS);
-      const yOverlap = !(headY < TMP_BOX3.min.y || feetY > TMP_BOX3.max.y);
-      if (!yOverlap) continue;
-      if (pos.x > TMP_BOX3.min.x && pos.x < TMP_BOX3.max.x &&
-          pos.z > TMP_BOX3.min.z && pos.z < TMP_BOX3.max.z) {
-        const dxMin = pos.x - TMP_BOX3.min.x;
-        const dxMax = TMP_BOX3.max.x - pos.x;
-        const dzMin = pos.z - TMP_BOX3.min.z;
-        const dzMax = TMP_BOX3.max.z - pos.z;
-        const minPen = Math.min(dxMin, dxMax, dzMin, dzMax);
-        if (minPen === dxMin) pos.x = TMP_BOX3.min.x;
-        else if (minPen === dxMax) pos.x = TMP_BOX3.max.x;
-        else if (minPen === dzMin) pos.z = TMP_BOX3.min.z;
-        else pos.z = TMP_BOX3.max.z;
-        corrected = true;
+  // naive collision against static AABBs (boxes)
+  const _box = new THREE.Box3();
+  function collideCapsuleAABBs(staticColliders) {
+    // treat player as cylinder for simplicity
+    const radius = 0.45;
+    for (let i = 0; i < staticColliders.length; i++) {
+      const b = staticColliders[i];
+      if (!b) continue;
+      if (b.intersectsSphere(new THREE.Sphere(new THREE.Vector3(group.position.x, group.position.y - 0.9, group.position.z), radius))) {
+        // push out in the smallest axis direction
+        // compute closest point in box to player center at feet height
+        _box.copy(b);
+        const p = new THREE.Vector3(
+          THREE.MathUtils.clamp(group.position.x, _box.min.x, _box.max.x),
+          THREE.MathUtils.clamp(group.position.y - 0.9, _box.min.y, _box.max.y),
+          THREE.MathUtils.clamp(group.position.z, _box.min.z, _box.max.z),
+        );
+        const delta = new THREE.Vector3(group.position.x, group.position.y - 0.9, group.position.z).sub(p);
+        const len = delta.length() || 1e-6;
+        const push = radius - len;
+        if (push > 0) {
+          delta.multiplyScalar(push / len);
+          group.position.x += delta.x;
+          group.position.z += delta.z;
+        }
       }
     }
-    return corrected;
-  }
-
-  function tryStepUp(currentPos, horizDelta, walkables) {
-    if (horizDelta.lengthSq() === 0) return false;
-    const testPos = currentPos.clone().add(horizDelta);
-    const from = new THREE.Vector3(testPos.x, currentPos.y + STEP_HEIGHT + 0.2, testPos.z);
-    downRay.set(from, downDir);
-    const hits = downRay.intersectObjects(walkables, true);
-    if (!hits.length) return false;
-    const hit = hits[0];
-    const newY = from.y - hit.distance;
-    if (newY >= currentPos.y - 0.01 && newY <= currentPos.y + STEP_HEIGHT + 0.01) {
-      currentPos.copy(testPos);
-      currentPos.y = newY;
-      grounded = true; vy = 0; coyoteTimer = COYOTE_MAX;
-      return true;
-    }
-    return false;
   }
 
   function update(dt, input, staticColliders, walkableMeshes, turnMode, snapAngleDeg) {
-    if (turnMode === 'smooth') {
-      playerYRotation -= input.turnAxis.x * 0.05;
-    } else if (input.turnSnapDeltaRad) {
-      playerYRotation += input.turnSnapDeltaRad;
+    // one-time safe spawn
+    if (!spawnAdjusted && walkableMeshes && walkableMeshes.length) {
+      safeSpawn(walkableMeshes);
+      spawnAdjusted = true;
     }
-    group.rotation.y = playerYRotation;
 
-    // Movement
-    let wantMove = false;
-    let horizDelta = TMP_VEC3.set(0,0,0);
-    if (Math.abs(input.moveAxis.x) > 0 || Math.abs(input.moveAxis.y
+    // turning
+    applySnapOrSmoothTurn(dt, input, turnMode, snapAngleDeg);
+
+    // movement (local to rig yaw)
+    const speed = 3.5;
+    tmp.set(input.moveAxis.x, 0, -input.moveAxis.y);
+    // rotate by current yaw (project camera yaw onto Y)
+    camera.getWorldQuaternion(quat);
+    const yaw = new THREE.Euler(0, new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1).applyQuaternion(quat), up)).y, 0);
+    tmp.applyEuler(yaw);
+    group.position.addScaledVector(tmp, speed * dt);
+
+    // simple gravity/jump
+    const GRAV = -9.81;
+    if (input.jumpPressed) {
+      // check if near ground via small down ray
+      const ray = new THREE.Raycaster();
+      const origin = new THREE.Vector3(group.position.x, group.position.y, group.position.z);
+      ray.set(origin, down);
+      const hits = ray.intersectObjects(walkableMeshes, false);
+      if (hits.length && (origin.y - hits[0].point.y) <= (capsuleHalfHeight + 0.12)) {
+        vel.y = 4.5; // jump impulse
+      }
+    }
+    vel.y += GRAV * dt;
+    group.position.y += vel.y * dt;
+
+    // ground snap / land
+    const ray = new THREE.Raycaster();
+    ray.set(new THREE.Vector3(group.position.x, group.position.y, group.position.z), down);
+    const hits = ray.intersectObjects(walkableMeshes, false);
+    if (hits.length) {
+      const groundY = hits[0].point.y + capsuleHalfHeight;
+      if (group.position.y < groundY + feetOffset) {
+        group.position.y = groundY + feetOffset;
+        vel.y = Math.max(0, vel.y);
+      }
+    }
+
+    // collide with walls
+    if (staticColliders && staticColliders.length) {
+      collideCapsuleAABBs(staticColliders);
+    }
+  }
+
+  function onResize(w, h) {
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+
+  // helper for combat
+  function getMuzzleWorld(outPos = new THREE.Vector3(), outQuat = new THREE.Quaternion()) {
+    const m = gun.getObjectByName('muzzle');
+    if (!m) return { pos: outPos.set(0,0,0), quat: outQuat.identity() };
+    m.getWorldPosition(outPos);
+    m.getWorldQuaternion(outQuat);
+    return { pos: outPos, quat: outQuat };
+  }
+
+  return {
+    group, camera,
+    controllerLeft, controllerRight, gripLeft, gripRight,
+    gun, attachGunTo,
+    getMuzzleWorld,
+    update, onResize
+  };
+}

@@ -14,71 +14,66 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.setClearColor(FOG.COLOR, 1);
 document.body.appendChild(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer));
 
+const clock = new THREE.Clock();
+
 // Lights
-const hemi = new THREE.HemisphereLight(0xffffff, 0x333344, 0.8);
-scene.add(hemi);
-const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-dir.position.set(5,10,3);
-scene.add(dir);
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+dirLight.position.set(5, 10, 5);
+scene.add(dirLight);
 
 // Level
-const { staticColliders, walkableMeshes, refs } = buildLevel(scene);
+const { staticColliders, walkableMeshes } = buildLevel(scene);
 
-// Player & Systems
+// Player
 const player = createPlayer(renderer);
 scene.add(player.group);
 
-// Safe spawn: center of interior floor
-const spawnY = (refs?.interiorFloor?.position?.y ?? 0.05) + 1.6;
-player.teleportTo(0, spawnY, 0, walkableMeshes, staticColliders);
-
-// Systems
+// Combat
 const combat = createCombat(scene, player, staticColliders);
 
-// Pre-VR overlay & keyboard
-initOverlay(document.getElementById('overlay'), (s)=>{
-  player.attachGunTo(s.weaponHand);
-  refreshHUD();
-});
-const { updateFromKeyboard } = initKeyboard();
-
-// In-Game HUD (smaller & default off)
-initHUD(scene, player, settings.hudEnabled, settings.hudScale);
-
-// Make sure gun is attached initially
-player.attachGunTo(settings.weaponHand);
+// Input
+initKeyboard();
+initOverlay((newHand) => { player.attachGunTo(newHand); refreshHUD(); });
+initHUD(player.camera, player.controllerRight, () => combat.cycleWeapon(), (newHand) => { player.attachGunTo(newHand); });
 
 // Resize
 window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
   player.onResize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Fixed timestep loop
+// Fixed-Timestep Loop
 const FIXED_DT = 1/60;
+const MAX_STEPS = 5;
 let accumulator = 0;
-let lastTime = performance.now();
+
+function onXRFrame() {
+  if (renderer.xr.isPresenting) {
+    const session = renderer.xr.getSession();
+    readXRInput(session);
+  }
+}
 
 function onRenderFrame() {
-  const now = performance.now();
-  const dt = Math.min(0.05, (now - lastTime) / 1000);
-  lastTime = now;
+  const rawDt = clock.getDelta();
+  const dt = Math.min(rawDt, 0.25);
+  onXRFrame();
+
   accumulator += dt;
-
-  // poll inputs
-  updateFromKeyboard(dt);
-  readXRInput(renderer.xr, dt);
-
   let steps = 0;
-  while (accumulator >= FIXED_DT && steps < 3) {
+  while (accumulator >= FIXED_DT && steps < MAX_STEPS) {
     const input = getInputState();
-    // Player Update
+    // Player Update (inkl. Snap-Turn delta aus input)
     player.update(FIXED_DT, input, staticColliders, walkableMeshes, settings.turnMode, settings.snapAngleDeg);
     // Combat Update
     combat.update(FIXED_DT, input, settings);
+
     accumulator -= FIXED_DT;
     steps++;
   }

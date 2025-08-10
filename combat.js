@@ -1,6 +1,10 @@
 // combat.js
 import { THREE } from './deps.js';
 
+/**
+ * Combat system with simple bullet pooling. Bullets now spawn
+ * from the player's gun 'muzzle' transform (see player.getMuzzleWorld()).
+ */
 export function createCombat(scene, player, staticColliders) {
   const weapons = [
     { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10 },
@@ -16,73 +20,62 @@ export function createCombat(scene, player, staticColliders) {
     let m = bulletPool.pop();
     if (!m) {
       m = new THREE.Mesh(
-        new THREE.SphereGeometry(1, 8, 8),
+        new THREE.SphereGeometry(1, 10, 10),
         new THREE.MeshBasicMaterial({ color })
       );
+      m.userData.vel = new THREE.Vector3();
+      m.geometry.computeBoundingSphere();
     }
-    m.visible = true;
     m.scale.setScalar(radius);
     m.material.color.setHex(color);
+    m.userData.radius = radius;
     return m;
   }
+
   function releaseBullet(m) {
-    m.visible = false;
-    m.position.set(0, -999, 0);
-    if (m.velocity) m.velocity.set(0, 0, 0);
     bulletPool.push(m);
   }
 
-  function cycleWeapon() {
-    currentWeapon = (currentWeapon + 1) % weapons.length;
+  function cycleWeapon(dir = 1) {
+    currentWeapon = (currentWeapon + dir + weapons.length) % weapons.length;
   }
 
-  function fire() {
+  const ray = new THREE.Raycaster();
+  const tmp = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+
+  function tryFire(dt, input) {
     const w = weapons[currentWeapon];
-    // spawn at muzzle if available (fallback: active controller)
-    let origin = new THREE.Vector3();
-    let quat = new THREE.Quaternion();
+    fireCooldown -= dt;
+    if (!input.fireHeld || fireCooldown > 0) return;
 
-    if (player.getMuzzlePose) {
-      const p = player.getMuzzlePose(origin, quat);
-      origin = p.pos; quat = p.rot;
-    } else {
-      const ctrl = player.controllerRight || player.controllerLeft;
-      origin = ctrl.getWorldPosition(new THREE.Vector3());
-      quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
-    }
-
-    const dir = new THREE.Vector3(0,0,-1).applyQuaternion(quat).normalize();
+    // get muzzle transform
+    const { pos, quat } = player.getMuzzleWorld(tmp, q);
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
 
     const b = acquireBullet(w.radius, w.color);
-    b.position.copy(origin);
-    b.quaternion.copy(quat);
-    b.velocity = dir.multiplyScalar(w.speed);
+    b.position.copy(pos);
+    b.userData.vel.copy(forward).multiplyScalar(w.speed);
     scene.add(b);
     bullets.push(b);
 
-    fireCooldown = 1.0 / w.fireRate;
+    fireCooldown = 1 / w.fireRate;
   }
 
-  function update(dt, input, settings) {
-    fireCooldown = Math.max(0, fireCooldown - dt);
-
-    if (input.fireHeld && fireCooldown <= 0) {
-      fire();
-    }
-
-    // advance & collide
-    const staticObjs = staticColliders.map(e => e.obj);
+  // naive bullet vs static colliders check; delete on hit or after distance
+  function moveAndCollideBullets(dt) {
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
-      b.position.addScaledVector(b.velocity, dt);
+      b.position.addScaledVector(b.userData.vel, dt);
 
-      // simple AABB hit test
+      // ray ahead for hit
+      const ahead = tmp.copy(b.userData.vel).normalize().multiplyScalar(b.userData.radius * 1.5);
+      ray.set(b.position, ahead.normalize());
       let hit = false;
-      for (let j = 0; j < staticObjs.length; j++) {
-        const box = staticColliders[j].box;
-        if (b.position.x >= box.min.x - 0.05 && b.position.x <= box.max.x + 0.05 &&
-            b.position.y >= box.min.y - 0.05 && b.position.y <= box.max.y + 0.05 &&
-            b.position.z >= box.min.z - 0.05 && b.position.z <= box.max.z + 0.05) {
+      for (let j = 0; j < staticColliders.length && !hit; j++) {
+        const box = staticColliders[j];
+        // simple sphere vs box
+        if (box.containsPoint(b.position)) {
           hit = true; break;
         }
       }
@@ -92,6 +85,11 @@ export function createCombat(scene, player, staticColliders) {
         bullets.splice(i, 1);
       }
     }
+  }
+
+  function update(dt, input /*, settings*/) {
+    tryFire(dt, input);
+    moveAndCollideBullets(dt);
   }
 
   return {
