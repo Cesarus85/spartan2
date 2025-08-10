@@ -1,6 +1,5 @@
-// level.js
 import { THREE } from './deps.js';
-import { makeVariedStandardMaterial, randBetween } from './utils.js';
+import { randBetween } from './utils.js';
 
 export const FOG = {
   COLOR: 0x87CEEB,
@@ -14,123 +13,80 @@ export function buildLevel(scene) {
 
   const addStaticCollider = (obj) => {
     const box = new THREE.Box3().setFromObject(obj);
-    staticColliders.push({ obj, box });
+    staticColliders.push({ box, obj });
   };
-  const addWalkable = (obj) => walkableMeshes.push(obj);
 
-  // Ground
-  const groundGeo = new THREE.PlaneGeometry(20, 20, 20, 20);
+  // Ground (20x20 with subtle hills)
+  const groundGeo = new THREE.PlaneGeometry(20, 20, 32, 32);
   groundGeo.rotateX(-Math.PI / 2);
-  const verts = groundGeo.attributes.position.array;
-  for (let i = 2; i < verts.length; i += 3) verts[i] += Math.random() * 0.5 - 0.25;
-  groundGeo.attributes.position.needsUpdate = true;
-  groundGeo.computeVertexNormals();
-
-  const groundMat = makeVariedStandardMaterial(0x8B4513);
-  groundMat.side = THREE.DoubleSide;
+  const pos = groundGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const h = Math.sin(x * 0.7) * 0.05 + Math.cos(z * 0.6) * 0.05;
+    pos.setY(i, h);
+  }
+  pos.needsUpdate = true;
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x556b2f, roughness: 0.9, metalness: 0.0 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.receiveShadow = true; // *** shadows receive
+  ground.name = 'ground';
   scene.add(ground);
-  addStaticCollider(ground);
-  addWalkable(ground);
+  walkableMeshes.push(ground);
 
-  // Fortress
-  const fortressGroup = new THREE.Group();
-  const wallBase = makeVariedStandardMaterial(0x333333);
+  // Fortress walls (simple box ring)
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.85 });
+  const wallThickness = 0.6;
+  const wallHeight = 3.2;
+  const inner = 6.0;
+  const outer = inner + wallThickness;
 
-  const wall1Left = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3, 0.5), wallBase.clone());
-  wall1Left.position.set(-1.75, 1.5, 2.5);
-  fortressGroup.add(wall1Left); addStaticCollider(wall1Left);
-
-  const wall1Right = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3, 0.5), wallBase.clone());
-  wall1Right.position.set(1.75, 1.5, 2.5);
-  fortressGroup.add(wall1Right); addStaticCollider(wall1Right);
-
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(2, 0.5, 0.5), wallBase.clone());
-  lintel.position.set(0, 2.75, 2.5);
-  fortressGroup.add(lintel); addStaticCollider(lintel);
-
-  const wallBack = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 0.5), wallBase.clone());
-  wallBack.position.set(0, 1.5, -2.5);
-  fortressGroup.add(wallBack); addStaticCollider(wallBack);
-
-  const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 5), wallBase.clone());
-  wallLeft.position.set(2.5, 1.5, 0);
-  fortressGroup.add(wallLeft); addStaticCollider(wallLeft);
-
-  const wallRight = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 5), wallBase.clone());
-  wallRight.position.set(-2.5, 1.5, 0);
-  fortressGroup.add(wallRight); addStaticCollider(wallRight);
-
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(5, 0.5, 5), wallBase.clone());
-  roof.position.set(0, 3.25, 0);
-  fortressGroup.add(roof); addStaticCollider(roof); addWalkable(roof);
-
-  const interiorMat = makeVariedStandardMaterial(0x7A3E12);
-  const interiorFloor = new THREE.Mesh(new THREE.BoxGeometry(4, 0.1, 4), interiorMat);
-  interiorFloor.position.set(0, 0.05, 0);
-  fortressGroup.add(interiorFloor); addStaticCollider(interiorFloor); addWalkable(interiorFloor);
-
-  scene.add(fortressGroup);
-
-  // No-Spawn-Zones
-  const forbiddenZones = [
-    new THREE.Box3(new THREE.Vector3(-2.7, 0.0, -2.7), new THREE.Vector3(2.7, 4.5, 2.9)),
-    new THREE.Box3(new THREE.Vector3(-1.2, 0.0, 1.2),  new THREE.Vector3(1.2, 3.0, 4.0)),
-  ];
-
-  const intersectsForbidden = (box) => forbiddenZones.some(f => box.intersectsBox(f));
-
-  // Obstacles
-  for (let i = 0; i < 10; i++) {
-    const w = new THREE.Mesh(
-      new THREE.BoxGeometry(randBetween(1, 3), randBetween(1, 3), randBetween(1, 3)),
-      makeVariedStandardMaterial(0xA9A9A9)
-    );
-
-    const size = w.geometry.parameters;
-    const hx = (size.width  || 1) / 2;
-    const hy = (size.height || 1) / 2;
-    const hz = (size.depth  || 1) / 2;
-
-    let placed = false;
-    for (let a = 0; a < 60 && !placed; a++) {
-      const x = Math.random() * 20 - 10;
-      const z = Math.random() * 20 - 10;
-      const y = hy;
-      const min = new THREE.Vector3(x - hx, 0, z - hz);
-      const max = new THREE.Vector3(x + hx, y * 2, z + hz);
-      const candidate = new THREE.Box3(min, max);
-      if (!intersectsForbidden(candidate)) {
-        w.position.set(x, y, z);
-        placed = true;
-      }
-    }
-    if (!placed) {
-      w.position.set(12 + Math.random() * 6, hy, 12 + Math.random() * 6);
-    }
-    scene.add(w);
-    addStaticCollider(w);
-    addWalkable(w);
+  function ringBox(w, h, d, x, y, z) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+    m.position.set(x, y, z);
+    m.castShadow = true;  // *** cast
+    m.receiveShadow = true; // *** receive
+    scene.add(m);
+    addStaticCollider(m);
+    return m;
   }
 
-  // Sky + Ring (fog ausschalten)
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(500, 32, 32),
-    new THREE.MeshBasicMaterial({ color: FOG.COLOR, side: THREE.BackSide, fog: false })
-  );
+  // four sides
+  ringBox(outer * 2, wallHeight, wallThickness, 0, wallHeight / 2, -inner);
+  ringBox(outer * 2, wallHeight, wallThickness, 0, wallHeight / 2, inner);
+  // gate opening on +X side
+  ringBox(wallThickness, wallHeight, outer * 2, -inner, wallHeight / 2, 0);
+  // right segment
+  ringBox(wallThickness, wallHeight, outer * 2 - 3.0, inner, wallHeight / 2, -1.5);
+  // left short pillar next to gate opening (leaves ~2m gap)
+  ringBox(wallThickness, wallHeight, 2.0, inner, wallHeight / 2,  outer - 1.0);
+
+  // Interior floor slightly raised
+  const interior = new THREE.Mesh(new THREE.BoxGeometry(inner * 2, 0.2, inner * 2), new THREE.MeshStandardMaterial({ color: 0x5b5b5b, roughness: 0.9 }));
+  interior.position.set(0, 0.1, 0);
+  interior.receiveShadow = true;
+  scene.add(interior);
+  walkableMeshes.push(interior);
+  addStaticCollider(interior);
+
+  // Decorative blocks
+  for (let i = 0; i < 10; i++) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.8, randBetween(0.5, 1.4), 0.8), new THREE.MeshStandardMaterial({ color: 0x7f7f7f }));
+    b.position.set(randBetween(-8, 8), b.geometry.parameters.height / 2, randBetween(-8, 8));
+    b.castShadow = true; b.receiveShadow = true;
+    scene.add(b);
+    addStaticCollider(b);
+  }
+
+  // Sky dome (very cheap)
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(200, 16, 12), new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide, fog: false }));
+  sky.position.y = 0;
   scene.add(sky);
 
-  const haloRing = new THREE.Mesh(
-    new THREE.TorusGeometry(100, 5, 16, 100),
-    new THREE.MeshBasicMaterial({ color: 0xFFFFFF, fog: false })
-  );
+  // Halo ring
+  const haloRing = new THREE.Mesh(new THREE.TorusGeometry(100, 5, 16, 100), new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }));
   haloRing.rotation.x = Math.PI / 2;
   haloRing.position.set(0, 200, -300);
   scene.add(haloRing);
 
-  return {
-    staticColliders,
-    walkableMeshes,
-    refs: { ground, roof, interiorFloor, sky, haloRing }
-  };
+  return { staticColliders, walkableMeshes, refs: { ground, interior, sky, haloRing } };
 }
