@@ -3,8 +3,9 @@ import { THREE, VRButton } from './deps.js';
 import { FOG, buildLevel } from './level.js';
 import { createPlayer } from './player.js';
 import { createCombat } from './combat.js';
-import { initKeyboard, initOverlay, readXRInput, getInputState, settings } from './input.js';
+import { initKeyboard, initOverlay, initHUD, readXRInput, getInputState, settings, refreshHUD } from './input.js';
 import { createAIManager } from './ai.js';
+
 
 // Renderer/Scene
 const scene = new THREE.Scene();
@@ -38,12 +39,13 @@ scene.add(player.group);
 // Combat
 const combat = createCombat(scene, player, staticColliders);
 
-// AI
+// AI Manager
 const ai = createAIManager(scene, player, staticColliders, walkableMeshes);
 
 // Input
 initKeyboard();
-initOverlay((newHand) => { player.attachGunTo(newHand); });
+initOverlay((newHand) => { player.attachGunTo(newHand); refreshHUD(); });
+initHUD(player.camera, player.controllerRight, () => combat.cycleWeapon(), (newHand) => { player.attachGunTo(newHand); });
 
 // Resize
 window.addEventListener('resize', () => {
@@ -72,12 +74,12 @@ function onRenderFrame() {
   let steps = 0;
   while (accumulator >= FIXED_DT && steps < MAX_STEPS) {
     const input = getInputState();
-
-    // Player
+    // Player Update (inkl. Snap-Turn delta aus input)
     player.update(FIXED_DT, input, staticColliders, walkableMeshes, settings.turnMode, settings.snapAngleDeg);
-    // Combat
+    // Combat Update
     combat.update(FIXED_DT, input, settings);
-    // AI
+
+    // AI Update
     ai.update(FIXED_DT);
 
     accumulator -= FIXED_DT;
