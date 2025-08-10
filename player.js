@@ -61,19 +61,23 @@ export function createPlayer(renderer) {
 
   // Which hand holds the gun by default is managed by input/settings; expose helper
   function attachGunTo(handedness) {
+    gun.removeFromParent();
     if (handedness === 'left') {
       controllerLeft.add(gun);
     } else {
       controllerRight.add(gun);
     }
   }
+  // Default: weapon in LEFT hand on start
+  attachGunTo('left');
 
-  // --- Movement physics (lightweight) ---
+  // --- Movement/physics (lightweight) ---
   const vel = new THREE.Vector3(0, 0, 0);
   const tmp = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
   const down = new THREE.Vector3(0, -1, 0);
-  const quat = new THREE.Quaternion();
+  const forward = new THREE.Vector3();
+  const right = new THREE.Vector3();
 
   const capsuleHalfHeight = 1.6 * 0.5 + 0.75; // rough visual to collider alignment
   const feetOffset = 0.05; // safety margin above ground when snapping
@@ -148,17 +152,22 @@ export function createPlayer(renderer) {
     // turning
     applySnapOrSmoothTurn(dt, input, turnMode, snapAngleDeg);
 
-    // movement (local to rig yaw)
+    // movement based on CAMERA forward/right projected onto ground (intuitive controls)
+    // left stick: y = forward(+)/back(−), x = strafe right(+)/left(−)
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+    right.crossVectors(up, forward).normalize(); // up × forward = right
+
+    tmp.set(0, 0, 0)
+       .addScaledVector(forward, input.moveAxis.y)
+       .addScaledVector(right,   input.moveAxis.x);
+
     const speed = 3.5;
-    tmp.set(input.moveAxis.x, 0, -input.moveAxis.y);
-    // rotate by current yaw (project camera yaw onto Y)
-    camera.getWorldQuaternion(quat);
-    const yaw = new THREE.Euler(0, new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1).applyQuaternion(quat), up)).y, 0);
-    tmp.applyEuler(yaw);
     group.position.addScaledVector(tmp, speed * dt);
 
-    // simple gravity/jump
-    const GRAV = -9.81;
+    // simple gravity/jump (moon-like)
+    const GRAV = -4.2; // was -9.81; lighter gravity desired
     if (input.jumpPressed) {
       // check if near ground via small down ray
       const ray = new THREE.Raycaster();
@@ -166,7 +175,7 @@ export function createPlayer(renderer) {
       ray.set(origin, down);
       const hits = ray.intersectObjects(walkableMeshes, false);
       if (hits.length && (origin.y - hits[0].point.y) <= (capsuleHalfHeight + 0.12)) {
-        vel.y = 4.5; // jump impulse
+        vel.y = 6.0; // stronger jump impulse
       }
     }
     vel.y += GRAV * dt;
