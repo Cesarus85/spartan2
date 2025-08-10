@@ -3,222 +3,222 @@ import { THREE } from './deps.js';
 
 export const settings = {
   turnMode: 'smooth',   // 'smooth' | 'snap'
-  snapAngleDeg: 30,     // 30 | 45
+  snapAngleDeg: 30,     // 30 | 45 | ...
   weaponHand: 'left',   // 'left' | 'right'
+  hudEnabled: true,     // NEW: in-game HUD can be disabled
 };
 
-// interner State
+// internal state
 const state = {
   moveAxis: { x: 0, y: 0 },
   turnAxis: { x: 0, y: 0 },
   jumpPressed: false,
   fireHeld: false,
-  // nur für Snap: liefert bei Bedarf ±angle, danach 0 (edge)
-  turnSnapDeltaRad: 0,
-  _snapCooldown: 0,
-  _rightBWasPressed: false
+  turnSnapDeltaRad: 0,  // edge-trigger for snap
 };
 
-let callbacks = {
-  onWeaponCycle: () => {},
-  onWeaponHandChange: () => {}
-};
-
-let hud = null; // {group, btnTurn, btnSnap, btnHand}
-let overlayEls = { turnMode: null, snapAngle: null, weaponHand: null };
-
-// ---------- Public API ----------
-export function initKeyboard() {
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'w') state.moveAxis.y = -1;
-    if (e.key === 's') state.moveAxis.y =  1;
-    if (e.key === 'a') state.moveAxis.x = -1;
-    if (e.key === 'd') state.moveAxis.x =  1;
-    if (e.key === 'ArrowLeft')  state.turnAxis.x = -1;
-    if (e.key === 'ArrowRight') state.turnAxis.x =  1;
-    if (e.key === ' ') { state.jumpPressed = true; state.fireHeld = true; }
-  });
-  window.addEventListener('keyup', (e) => {
-    if (e.key === 'w' || e.key === 's') state.moveAxis.y = 0;
-    if (e.key === 'a' || e.key === 'd') state.moveAxis.x = 0;
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') state.turnAxis.x = 0;
-    if (e.key === ' ') { state.jumpPressed = false; state.fireHeld = false; }
-  });
-}
-
-export function initOverlay(onWeaponHandChange) {
-  callbacks.onWeaponHandChange = onWeaponHandChange || callbacks.onWeaponHandChange;
-  const root = document.getElementById('overlay');
-  root.innerHTML = `
-    <div style="font-weight:600;margin-bottom:6px;">Settings (Pre-VR)</div>
-    <label class="row">
-      Turn Mode:
-      <select id="ovTurnMode">
-        <option value="smooth">Smooth</option>
-        <option value="snap">Snap</option>
-      </select>
-    </label>
-    <label class="row">
-      Snap Angle:
-      <select id="ovSnapAngle">
-        <option value="30">30°</option>
-        <option value="45">45°</option>
-      </select>
-    </label>
-    <label class="row">
-      Weapon Hand:
-      <select id="ovWeaponHand">
-        <option value="left">Left</option>
-        <option value="right">Right</option>
-      </select>
-    </label>
-  `;
-  overlayEls.turnMode   = root.querySelector('#ovTurnMode');
-  overlayEls.snapAngle  = root.querySelector('#ovSnapAngle');
-  overlayEls.weaponHand = root.querySelector('#ovWeaponHand');
-
-  overlayEls.turnMode.value  = settings.turnMode;
-  overlayEls.snapAngle.value = String(settings.snapAngleDeg);
-  overlayEls.weaponHand.value = settings.weaponHand;
-
-  overlayEls.turnMode.onchange = () => settings.turnMode = overlayEls.turnMode.value;
-  overlayEls.snapAngle.onchange = () => settings.snapAngleDeg = parseInt(overlayEls.snapAngle.value, 10);
-  overlayEls.weaponHand.onchange = () => {
-    settings.weaponHand = overlayEls.weaponHand.value;
-    callbacks.onWeaponHandChange(settings.weaponHand);
-    updateHudTextures();
-  };
-}
-
-export function initHUD(camera, controllerRight, onWeaponCycle, onWeaponHandChange) {
-  callbacks.onWeaponCycle = onWeaponCycle || callbacks.onWeaponCycle;
-  callbacks.onWeaponHandChange = onWeaponHandChange || callbacks.onWeaponHandChange;
-
-  hud = createHUD();
-  camera.add(hud.group);
-
-  const uiRay = new THREE.Raycaster();
-  controllerRight.addEventListener('selectstart', () => {
-    const origin = controllerRight.getWorldPosition(new THREE.Vector3());
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(controllerRight.getWorldQuaternion(new THREE.Quaternion())).normalize();
-    uiRay.set(origin, dir);
-    const hits = uiRay.intersectObjects([hud.btnTurn, hud.btnSnap, hud.btnHand], false);
-    if (hits.length) {
-      const obj = hits[0].object;
-      if (obj === hud.btnTurn) {
-        settings.turnMode = (settings.turnMode === 'smooth') ? 'snap' : 'smooth';
-        overlayEls.turnMode.value = settings.turnMode;
-      } else if (obj === hud.btnSnap) {
-        settings.snapAngleDeg = (settings.snapAngleDeg === 30) ? 45 : 30;
-        overlayEls.snapAngle.value = String(settings.snapAngleDeg);
-      } else if (obj === hud.btnHand) {
-        settings.weaponHand = (settings.weaponHand === 'left') ? 'right' : 'left';
-        overlayEls.weaponHand.value = settings.weaponHand;
-        callbacks.onWeaponHandChange(settings.weaponHand);
-      }
-      updateHudTextures();
-    }
-  });
-}
-
-export function readXRInput(session) {
-  // reset
-  state.moveAxis.x = state.moveAxis.y = 0;
-  state.turnAxis.x = state.turnAxis.y = 0;
-  state.jumpPressed = false;
-  state.fireHeld = false;
-
-  for (const source of session.inputSources) {
-    if (!source.gamepad) continue;
-    const { axes, buttons } = source.gamepad;
-    const dead = 0.1;
-    const axX = Math.abs(axes[2] || 0) > dead ? axes[2] : 0;
-    const axY = Math.abs(axes[3] || 0) > dead ? axes[3] : 0;
-
-    if (source.handedness === 'left') {
-      state.moveAxis.x = axX; state.moveAxis.y = axY;
-    } else if (source.handedness === 'right') {
-      state.turnAxis.x = axX; state.turnAxis.y = axY;
-
-      // A (id=4) → Jump
-      if (buttons[4] && buttons[4].pressed) state.jumpPressed = true;
-
-      // B (id=5) → Weapon Cycle
-      const bPressed = (buttons[5] && buttons[5].pressed) || false;
-      if (bPressed && !state._rightBWasPressed) callbacks.onWeaponCycle();
-      state._rightBWasPressed = bPressed;
-    }
-
-    // Trigger (id=0) nur auf aktiver Waffenhand
-    const trigDown = (buttons[0] && buttons[0].pressed) || false;
-    if (source.handedness === settings.weaponHand && trigDown) state.fireHeld = true;
-  }
-
-  // Snap-Turn Edge
-  state.turnSnapDeltaRad = 0;
-  if (settings.turnMode === 'snap') {
-    if (state._snapCooldown > 0) state._snapCooldown = Math.max(0, state._snapCooldown - 1/90);
-    const dead = 0.35;
-    if (state._snapCooldown === 0) {
-      if (state.turnAxis.x <= -dead) { state.turnSnapDeltaRad =  THREE.MathUtils.degToRad(settings.snapAngleDeg);  state._snapCooldown = 0.22; }
-      else if (state.turnAxis.x >=  dead) { state.turnSnapDeltaRad = -THREE.MathUtils.degToRad(settings.snapAngleDeg); state._snapCooldown = 0.22; }
-    }
-  }
-}
+let snapCooldown = 0.0;
+const SNAP_COOLDOWN = 0.18;
 
 export function getInputState() {
-  return {
+  // return a shallow copy with edge fields consumed
+  const out = {
     moveAxis: { ...state.moveAxis },
     turnAxis: { ...state.turnAxis },
     jumpPressed: state.jumpPressed,
     fireHeld: state.fireHeld,
-    turnSnapDeltaRad: state.turnSnapDeltaRad
+    turnSnapDeltaRad: state.turnSnapDeltaRad,
   };
+  state.turnSnapDeltaRad = 0;
+  state.jumpPressed = false;
+  return out;
 }
 
-function createHUD() {
-  const group = new THREE.Group();
-  group.position.set(0, -0.2, -0.8);
+// ---------------- Keyboard (desktop testing) ----------------
+export function initKeyboard() {
+  const keys = new Set();
+  window.addEventListener('keydown', (e) => {
+    keys.add(e.code);
+    if (e.code === 'Space') state.jumpPressed = true;
+    if (e.code === 'KeyF') state.fireHeld = true;
+  });
+  window.addEventListener('keyup', (e) => {
+    keys.delete(e.code);
+    if (e.code === 'KeyF') state.fireHeld = false;
+  });
 
-  const btnGeo = new THREE.PlaneGeometry(0.24, 0.08);
-  const mkBtn = (label) => {
-    const c = document.createElement('canvas'); c.width = 256; c.height = 128;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = '#202020'; ctx.fillRect(0,0,c.width,c.height);
-    ctx.strokeStyle = '#404040'; ctx.lineWidth = 6; ctx.strokeRect(4,4,c.width-8,c.height-8);
-    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 36px system-ui,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(label, c.width/2, c.height/2);
-    const tex = new THREE.CanvasTexture(c);
-    return new THREE.Mesh(btnGeo, new THREE.MeshBasicMaterial({ map: tex, transparent: true, fog: false }));
+  function updateFromKeyboard(dt) {
+    const x = (keys.has('KeyD') ? 1 : 0) + (keys.has('KeyA') ? -1 : 0);
+    const y = (keys.has('KeyW') ? 1 : 0) + (keys.has('KeyS') ? -1 : 0);
+    state.moveAxis.x = x;
+    state.moveAxis.y = y;
+    state.turnAxis.x = (keys.has('KeyQ') ? -1 : 0) + (keys.has('KeyE') ? 1 : 0);
+  }
+
+  return { updateFromKeyboard };
+}
+
+// ---------------- XR Controllers ----------------
+export function readXRInput(xr, dt) {
+  snapCooldown = Math.max(0, snapCooldown - dt);
+
+  if (!xr || !xr.isPresenting) return;
+
+  const session = xr.getSession();
+  if (!session) return;
+
+  for (const source of session.inputSources) {
+    if (!source || !source.gamepad) continue;
+    const handed = source.handedness; // 'left' | 'right' | 'none'
+    const gp = source.gamepad;
+
+    // Typical mapping (Quest): axes [x,y] on thumbstick; buttons: 0 trigger, 1 squeeze, 4/5 X/A, 6/7 Y/B
+    const [ax, ay] = gp.axes.length >= 2 ? gp.axes : [0,0];
+    if (handed === 'left') {
+      state.moveAxis.x = ax;
+      state.moveAxis.y = -ay; // forward on -Y
+      if (gp.buttons[4]?.pressed) state.jumpPressed = true; // X button as jump alt
+    } else if (handed === 'right') {
+      if (settings.turnMode === 'smooth') {
+        state.turnAxis.x = ax; // left/right turns
+      } else {
+        if (Math.abs(ax) > 0.7 && snapCooldown <= 0) {
+          const angle = THREE.MathUtils.degToRad(settings.snapAngleDeg);
+          state.turnSnapDeltaRad = ax > 0 ? -angle : angle; // right stick right => rotate right (negative yaw)
+          snapCooldown = SNAP_COOLDOWN;
+        }
+      }
+      if (gp.buttons[0]?.pressed) state.fireHeld = true; else state.fireHeld = false; // trigger
+      if (gp.buttons[1]?.pressed) state.jumpPressed = true; // B as jump alt
+    }
+  }
+}
+
+// ---------------- Pre-VR Overlay ----------------
+export function initOverlay(rootEl, onChange) {
+  if (!rootEl) return;
+  rootEl.innerHTML = '';
+
+  const h = document.createElement('div');
+  h.innerHTML = `
+    <div style="font-weight:600;margin-bottom:6px">Einstellungen</div>
+    <div class="row">
+      <label>Turn:</label>
+      <button id="btnTurn">Smooth</button>
+    </div>
+    <div class="row">
+      <label>Snap:</label>
+      <select id="selSnap">
+        <option value="30">30°</option>
+        <option value="45">45°</option>
+        <option value="60">60°</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Waffenhand:</label>
+      <button id="btnHand">Links</button>
+    </div>
+    <div class="row">
+      <label>In-Game HUD:</label>
+      <button id="btnHUD">An</button>
+    </div>
+    <div style="margin-top:8px;color:#aaa">Änderungen wirken sofort.</div>
+  `;
+  rootEl.appendChild(h);
+
+  const btnTurn = h.querySelector('#btnTurn');
+  const selSnap = h.querySelector('#selSnap');
+  const btnHand = h.querySelector('#btnHand');
+  const btnHUD  = h.querySelector('#btnHUD');
+
+  const refresh = () => {
+    btnTurn.textContent = settings.turnMode === 'smooth' ? 'Smooth' : 'Snap';
+    selSnap.value = String(settings.snapAngleDeg);
+    btnHand.textContent = settings.weaponHand === 'left' ? 'Links' : 'Rechts';
+    btnHUD.textContent = settings.hudEnabled ? 'An' : 'Aus';
+    if (onChange) onChange(settings);
   };
 
-  const btnTurn = mkBtn('Turn: Smooth');
-  const btnSnap = mkBtn('Snap: 30°');
-  const btnHand = mkBtn('Hand: Left');
-  btnTurn.position.set(-0.26, 0, 0);
-  btnSnap.position.set( 0.00, 0, 0);
-  btnHand.position.set( 0.26, 0, 0);
+  btnTurn.addEventListener('click', () => {
+    settings.turnMode = settings.turnMode === 'smooth' ? 'snap' : 'smooth';
+    refresh();
+  });
+  selSnap.addEventListener('change', () => {
+    settings.snapAngleDeg = parseInt(selSnap.value, 10);
+    refresh();
+  });
+  btnHand.addEventListener('click', () => {
+    settings.weaponHand = settings.weaponHand === 'left' ? 'right' : 'left';
+    refresh();
+  });
+  btnHUD.addEventListener('click', () => {
+    settings.hudEnabled = !settings.hudEnabled;
+    refresh();
+  });
 
-  group.add(btnTurn, btnSnap, btnHand);
+  refresh();
+}
 
-  return { group, btnTurn, btnSnap, btnHand };
+// ---------------- Minimal In-Game HUD ----------------
+let hud = null;
+
+export function initHUD(scene, player, enabled = true) {
+  if (!enabled) { hud = null; return; }
+
+  // create very cheap HUD: three floating billboards near right hand
+  const group = new THREE.Group();
+  group.name = 'HUD';
+  scene.add(group);
+
+  const makeLabel = (w=256,h=96,text='') => {
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#202020'; ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle = '#404040'; ctx.lineWidth = 6; ctx.strokeRect(4,4,w-8,h-8);
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 28px system-ui,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(text, w/2, h/2);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const m = new THREE.MeshBasicMaterial({ map: tex, transparent: true });
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.1), m);
+    (plane.userData).canvas = canvas;
+    (plane.userData).ctx = ctx;
+    return plane;
+  };
+
+  hud = {
+    root: group,
+    btnTurn: makeLabel(300, 100, `Turn: ${settings.turnMode}`),
+    btnSnap: makeLabel(300, 100, `Snap: ${settings.snapAngleDeg}°`),
+    btnHand: makeLabel(300, 100, `Hand: ${settings.weaponHand}`),
+  };
+  hud.btnTurn.position.set(0.15, -0.08, -0.35);
+  hud.btnSnap.position.set(0.15, -0.20, -0.35);
+  hud.btnHand.position.set(0.15, -0.32, -0.35);
+
+  // attach HUD near camera (fixed to head to avoid controller UI occluding)
+  player.camera.add(hud.root);
+  hud.root.add(hud.btnTurn, hud.btnSnap, hud.btnHand);
+
+  updateHudTextures();
 }
 
 function updateHudTextures() {
   if (!hud) return;
   const upd = (mesh, text) => {
-    const c = mesh.material.map.image;
-    const ctx = c.getContext('2d');
+    const c = mesh.userData.canvas;
+    const ctx = mesh.userData.ctx;
     ctx.clearRect(0,0,c.width,c.height);
     ctx.fillStyle = '#202020'; ctx.fillRect(0,0,c.width,c.height);
     ctx.strokeStyle = '#404040'; ctx.lineWidth = 6; ctx.strokeRect(4,4,c.width-8,c.height-8);
-    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 36px system-ui,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 28px system-ui,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(text, c.width/2, c.height/2);
     mesh.material.map.needsUpdate = true;
   };
   upd(hud.btnTurn, `Turn: ${settings.turnMode === 'smooth' ? 'Smooth' : 'Snap'}`);
   upd(hud.btnSnap, `Snap: ${settings.snapAngleDeg}°`);
-  upd(hud.btnHand, `Hand: ${settings.weaponHand === 'left' ? 'Left' : 'Right'}`);
+  upd(hud.btnHand, `Hand: ${settings.weaponHand === 'left' ? 'Links' : 'Rechts'}`);
 }
 
 export function refreshHUD() { updateHudTextures(); }

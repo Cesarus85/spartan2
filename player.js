@@ -1,322 +1,63 @@
 // player.js
 import { THREE } from './deps.js';
-import { makeVariedStandardMaterial, makeMetallicMaterial, makeEmissiveMaterial } from './utils.js';
+import { makeVariedStandardMaterial } from './utils.js';
+
+const TMP_MAT4 = new THREE.Matrix4();
+const TMP_VEC3 = new THREE.Vector3();
+const TMP_BOX3 = new THREE.Box3();
 
 export function createPlayer(renderer) {
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
+  // Player root
   const group = new THREE.Group();
-  group.position.set(0, 3.25 + 1.6, 0);
+  group.position.set(0, 3.25 + 1.6, 0); // start on the fortress roof a bit above ground
   group.add(camera);
 
-  // Detaillierterer Spielerkörper
-  const bodyGroup = new THREE.Group();
-  bodyGroup.position.y = -1.6;
-  
-  // Hauptkörper (Torso)
-  const torso = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.4, 1.2, 4, 8),
-    makeVariedStandardMaterial(0x006400, { 
-      roughnessRange: 0.3,
-      metalnessRange: 0.1 
-    })
+  // Visual body (cheap)
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
+    makeVariedStandardMaterial(0x006400)
   );
-  bodyGroup.add(torso);
+  body.position.y = -1.6;
+  group.add(body);
 
-  // Rüstungsplatten
-  const chestPlate = new THREE.Mesh(
-    new THREE.BoxGeometry(0.6, 0.8, 0.15),
-    makeMetallicMaterial(0x2F4F4F)
-  );
-  chestPlate.position.set(0, 0.2, 0.35);
-  bodyGroup.add(chestPlate);
-
-  // Schulterpolster
-  const leftShoulder = new THREE.Mesh(
-    new THREE.BoxGeometry(0.25, 0.3, 0.4),
-    makeMetallicMaterial(0x696969)
-  );
-  leftShoulder.position.set(-0.45, 0.4, 0);
-  bodyGroup.add(leftShoulder);
-
-  const rightShoulder = new THREE.Mesh(
-    new THREE.BoxGeometry(0.25, 0.3, 0.4),
-    makeMetallicMaterial(0x696969)
-  );
-  rightShoulder.position.set(0.45, 0.4, 0);
-  bodyGroup.add(rightShoulder);
-
-  // Helm-Andeutung (für VR nicht sichtbar, aber für Multiplayer später)
-  const helmet = new THREE.Mesh(
-    new THREE.SphereGeometry(0.35, 8, 8),
-    makeMetallicMaterial(0x1C1C1C)
-  );
-  helmet.position.set(0, 0.9, 0);
-  bodyGroup.add(helmet);
-
-  // Visor mit Emissive-Effect
-  const visor = new THREE.Mesh(
-    new THREE.SphereGeometry(0.36, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.6),
-    makeEmissiveMaterial(0x00AAFF, 0.3)
-  );
-  visor.position.set(0, 0.9, 0);
-  visor.material.transparent = true;
-  visor.material.opacity = 0.7;
-  bodyGroup.add(visor);
-
-  // Status-LEDs auf der Rüstung
-  const statusLights = [];
-  for (let i = 0; i < 3; i++) {
-    const led = new THREE.Mesh(
-      new THREE.SphereGeometry(0.03, 6, 6),
-      makeEmissiveMaterial(i === 0 ? 0x00FF00 : 0x444444, i === 0 ? 0.8 : 0.2)
-    );
-    led.position.set(-0.2 + i * 0.2, 0.1, 0.43);
-    bodyGroup.add(led);
-    statusLights.push(led);
-  }
-
-  group.add(bodyGroup);
-
-  // Controllers
+  // XR controllers (indices are fine here; input.js resolves handedness logic)
   const controllerLeft  = renderer.xr.getController(0);
   const controllerRight = renderer.xr.getController(1);
   const gripLeft  = renderer.xr.getControllerGrip(0);
   const gripRight = renderer.xr.getControllerGrip(1);
   group.add(controllerLeft, controllerRight, gripLeft, gripRight);
 
-  // Erweiterte Waffenmodelle
-  const weapons = {
-    assaultRifle: createAssaultRifle(),
-    battleRifle: createBattleRifle(),
-    pistol: createPistol()
-  };
+  // --- Gun + Muzzle ---------------------------------------------------------
+  const gun = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 0.1, 0.5),
+    makeVariedStandardMaterial(0x808080)
+  );
+  // move gun slightly forward & down relative to controller
+  gun.position.set(0, -0.04, -0.18);
 
-  let currentWeapon = weapons.assaultRifle;
-
-  function createAssaultRifle() {
-    const weaponGroup = new THREE.Group();
-    
-    // Hauptkörper
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.08, 0.12, 0.6),
-      makeMetallicMaterial(0x2F2F2F)
-    );
-    body.position.set(0, -0.05, -0.3);
-    weaponGroup.add(body);
-
-    // Lauf
-    const barrel = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.02, 0.025, 0.4, 8),
-      makeMetallicMaterial(0x1C1C1C)
-    );
-    barrel.rotation.z = Math.PI / 2;
-    barrel.position.set(0, 0.03, -0.5);
-    weaponGroup.add(barrel);
-
-    // Mündungsfeuer-Effekt (unsichtbar bis zum Schuss)
-    const muzzleFlash = new THREE.Mesh(
-      new THREE.SphereGeometry(0.05, 6, 6),
-      makeEmissiveMaterial(0xFFAA00, 1.0)
-    );
-    muzzleFlash.position.set(0, 0.03, -0.7);
-    muzzleFlash.visible = false;
-    weaponGroup.add(muzzleFlash);
-
-    // Magazin
-    const magazine = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.25, 0.08),
-      makeMetallicMaterial(0x404040)
-    );
-    magazine.position.set(0, -0.25, -0.15);
-    weaponGroup.add(magazine);
-
-    // Scope/Visier
-    const scope = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.015, 0.015, 0.15, 8),
-      makeMetallicMaterial(0x1A1A1A)
-    );
-    scope.rotation.z = Math.PI / 2;
-    scope.position.set(0, 0.08, -0.2);
-    weaponGroup.add(scope);
-
-    // LED-Ammo-Counter
-    const ammoDisplay = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.04, 0.02),
-      makeEmissiveMaterial(0x00FF00, 0.6)
-    );
-    ammoDisplay.position.set(0.05, 0, -0.1);
-    ammoDisplay.rotation.y = -Math.PI / 2;
-    weaponGroup.add(ammoDisplay);
-
-    weaponGroup.userData = {
-      muzzleFlash,
-      ammoDisplay,
-      weaponType: 'AR'
-    };
-
-    return weaponGroup;
-  }
-
-  function createBattleRifle() {
-    const weaponGroup = new THREE.Group();
-    
-    // Größerer, massiverer Körper
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 0.14, 0.7),
-      makeMetallicMaterial(0x4A4A4A)
-    );
-    body.position.set(0, -0.05, -0.35);
-    weaponGroup.add(body);
-
-    // Dicker Lauf
-    const barrel = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.025, 0.03, 0.5, 8),
-      makeMetallicMaterial(0x2F2F2F)
-    );
-    barrel.rotation.z = Math.PI / 2;
-    barrel.position.set(0, 0.04, -0.6);
-    weaponGroup.add(barrel);
-
-    // Muzzle Brake
-    const muzzleBrake = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035, 0.03, 0.08, 6),
-      makeMetallicMaterial(0x1C1C1C)
-    );
-    muzzleBrake.rotation.z = Math.PI / 2;
-    muzzleBrake.position.set(0, 0.04, -0.82);
-    weaponGroup.add(muzzleBrake);
-
-    // Mündungsfeuer
-    const muzzleFlash = new THREE.Mesh(
-      new THREE.SphereGeometry(0.07, 6, 6),
-      makeEmissiveMaterial(0xFF6600, 1.0)
-    );
-    muzzleFlash.position.set(0, 0.04, -0.86);
-    muzzleFlash.visible = false;
-    weaponGroup.add(muzzleFlash);
-
-    // Großes Magazin
-    const magazine = new THREE.Mesh(
-      new THREE.BoxGeometry(0.07, 0.3, 0.1),
-      makeMetallicMaterial(0x333333)
-    );
-    magazine.position.set(0, -0.3, -0.2);
-    weaponGroup.add(magazine);
-
-    // Erweiterte Optik
-    const scope = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.06, 0.2),
-      makeMetallicMaterial(0x0A0A0A)
-    );
-    scope.position.set(0, 0.1, -0.25);
-    weaponGroup.add(scope);
-
-    weaponGroup.userData = {
-      muzzleFlash,
-      weaponType: 'BR'
-    };
-
-    return weaponGroup;
-  }
-
-  function createPistol() {
-    const weaponGroup = new THREE.Group();
-    
-    // Kompakter Körper
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.08, 0.25),
-      makeMetallicMaterial(0x404040)
-    );
-    body.position.set(0, -0.02, -0.15);
-    weaponGroup.add(body);
-
-    // Kurzer Lauf
-    const barrel = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.015, 0.02, 0.15, 8),
-      makeMetallicMaterial(0x2A2A2A)
-    );
-    barrel.rotation.z = Math.PI / 2;
-    barrel.position.set(0, 0.02, -0.25);
-    weaponGroup.add(barrel);
-
-    // Kleines Magazin
-    const magazine = new THREE.Mesh(
-      new THREE.BoxGeometry(0.04, 0.15, 0.05),
-      makeMetallicMaterial(0x333333)
-    );
-    magazine.position.set(0, -0.15, -0.08);
-    weaponGroup.add(magazine);
-
-    const muzzleFlash = new THREE.Mesh(
-      new THREE.SphereGeometry(0.03, 6, 6),
-      makeEmissiveMaterial(0xFFAA00, 1.0)
-    );
-    muzzleFlash.position.set(0, 0.02, -0.32);
-    muzzleFlash.visible = false;
-    weaponGroup.add(muzzleFlash);
-
-    weaponGroup.userData = {
-      muzzleFlash,
-      weaponType: 'Pistol'
-    };
-
-    return weaponGroup;
-  }
+  // Muzzle: empty at gun's tip (local space)
+  const gunMuzzle = new THREE.Object3D();
+  gunMuzzle.position.set(0, 0, -0.25);
+  gun.add(gunMuzzle);
 
   function attachGunTo(hand) {
-    // Entferne aktuelle Waffe
-    currentWeapon.removeFromParent();
-    
-    // Füge zu entsprechender Hand hinzu
-    if (hand === 'right') {
-      controllerRight.add(currentWeapon);
-    } else {
-      controllerLeft.add(currentWeapon);
-    }
+    gun.removeFromParent();
+    if (hand === 'right') controllerRight.add(gun);
+    else controllerLeft.add(gun);
   }
 
-  function switchWeapon(weaponType) {
-    const wasAttached = currentWeapon.parent;
-    currentWeapon.removeFromParent();
-    
-    switch (weaponType) {
-      case 'AR':
-        currentWeapon = weapons.assaultRifle;
-        break;
-      case 'BR':
-        currentWeapon = weapons.battleRifle;
-        break;
-      case 'Pistol':
-        currentWeapon = weapons.pistol;
-        break;
-    }
-    
-    if (wasAttached) {
-      wasAttached.add(currentWeapon);
-    }
-  }
-
-  function showMuzzleFlash() {
-    const muzzleFlash = currentWeapon.userData.muzzleFlash;
-    if (muzzleFlash) {
-      muzzleFlash.visible = true;
-      // Zufällige Rotation für Variation
-      muzzleFlash.rotation.z = Math.random() * Math.PI * 2;
-      muzzleFlash.scale.setScalar(0.5 + Math.random() * 0.5);
-      
-      // Flash nach kurzer Zeit ausblenden
-      setTimeout(() => {
-        muzzleFlash.visible = false;
-      }, 50);
-    }
-  }
-
-  // Movement/Physics state
-  const velocity = new THREE.Vector3();
+  // --- Movement / Physics ---------------------------------------------------
+  const velocity = new THREE.Vector3(0,0,0);
   const direction = new THREE.Vector3();
   const moveSpeed = 5;
 
+  // simple capsule collision dimensions
+  const CAPSULE_RADIUS = 0.4;
+  const CAPSULE_HEIGHT = 1.6; // eye to feet
+
+  // vertical motion
   let vy = 0;
   let grounded = false;
   let coyoteTimer = 0;
@@ -325,6 +66,10 @@ export function createPlayer(renderer) {
   const GRAV = -9.8 * 0.5;
   const PROBE = 0.25;
 
+  // step offset (small ledges are walkable)
+  const STEP_HEIGHT = 0.35;
+
+  // raycasters
   const downRay = new THREE.Raycaster();
   const downDir = new THREE.Vector3(0, -1, 0);
   const upRay   = new THREE.Raycaster();
@@ -345,51 +90,101 @@ export function createPlayer(renderer) {
     return false;
   }
 
-  function blockCeiling(pos, dt, playerHeight, colliders) {
-    if (vy <= 0) return;
-    const headOldY = group.position.y + playerHeight;
-    upRay.set(new THREE.Vector3(pos.x, headOldY, pos.z), upDir);
-    upRay.far = (vy * dt) + 0.05;
-    const hits = upRay.intersectObjects(colliders.map(e => e.obj), true);
+  function ceilingBlock(pos, walkables) {
+    upRay.set(new THREE.Vector3(pos.x, pos.y + CAPSULE_HEIGHT * 0.5, pos.z), upDir);
+    const hits = upRay.intersectObjects(walkables, true);
     if (!hits.length) return;
     const hit = hits[0];
-    const clampY = hit.point.y - playerHeight;
-    if (pos.y > clampY) pos.y = clampY;
-    vy = 0;
+    // if head would intersect soon, clamp
+    if (hit.distance < 0.05) {
+      vy = Math.min(vy, 0);
+    }
   }
 
-  function updateStatusLights(health = 100) {
-    statusLights.forEach((light, index) => {
-      if (health > (index + 1) * 33) {
-        light.material.emissive.setHex(0x00FF00);
-        light.material.emissiveIntensity = 0.8;
-      } else if (health > index * 33) {
-        light.material.emissive.setHex(0xFFAA00);
-        light.material.emissiveIntensity = 0.6;
-      } else {
-        light.material.emissive.setHex(0xFF0000);
-        light.material.emissiveIntensity = 0.3;
+  function resolveStaticCollision(pos, staticColliders) {
+    // very cheap capsule-vs-AABB: treat capsule as vertical cylinder with radius
+    let corrected = false;
+    const feetY = pos.y - CAPSULE_HEIGHT * 0.5;
+    const headY = pos.y + CAPSULE_HEIGHT * 0.5;
+
+    for (let i=0;i<staticColliders.length;i++) {
+      const { box } = staticColliders[i];
+      // expand box by radius in XZ and by 0 in Y (cylinder)
+      TMP_BOX3.min.set(box.min.x - CAPSULE_RADIUS, box.min.y, box.min.z - CAPSULE_RADIUS);
+      TMP_BOX3.max.set(box.max.x + CAPSULE_RADIUS, box.max.y, box.max.z + CAPSULE_RADIUS);
+
+      // only consider Y overlap if within object vertical span
+      const yOverlap = !(headY < TMP_BOX3.min.y || feetY > TMP_BOX3.max.y);
+      if (!yOverlap) continue;
+
+      // clamp XZ into expanded box and push out along smallest axis if inside
+      if (pos.x > TMP_BOX3.min.x && pos.x < TMP_BOX3.max.x &&
+          pos.z > TMP_BOX3.min.z && pos.z < TMP_BOX3.max.z) {
+        const dxMin = pos.x - TMP_BOX3.min.x;
+        const dxMax = TMP_BOX3.max.x - pos.x;
+        const dzMin = pos.z - TMP_BOX3.min.z;
+        const dzMax = TMP_BOX3.max.z - pos.z;
+        const minPen = Math.min(dxMin, dxMax, dzMin, dzMax);
+        if (minPen === dxMin) pos.x = TMP_BOX3.min.x;
+        else if (minPen === dxMax) pos.x = TMP_BOX3.max.x;
+        else if (minPen === dzMin) pos.z = TMP_BOX3.min.z;
+        else pos.z = TMP_BOX3.max.z;
+        corrected = true;
       }
-    });
+    }
+    return corrected;
   }
 
-  function update(dt, input, colliders, walkables, turnMode, snapAngleDeg) {
-    // Turning
+  function tryStepUp(currentPos, horizDelta, walkables) {
+    // Attempt to move horizontally and find a ground a bit higher (<= STEP_HEIGHT)
+    if (horizDelta.lengthSq() === 0) return false;
+
+    const testPos = currentPos.clone().add(horizDelta);
+    // cast down from above potential step
+    const from = new THREE.Vector3(testPos.x, currentPos.y + STEP_HEIGHT + 0.2, testPos.z);
+    downRay.set(from, downDir);
+    const hits = downRay.intersectObjects(walkables, true);
+    if (!hits.length) return false;
+
+    const hit = hits[0];
+    const newY = from.y - hit.distance;
+    if (newY >= currentPos.y - 0.01 && newY <= currentPos.y + STEP_HEIGHT + 0.01) {
+      currentPos.copy(testPos);
+      currentPos.y = newY;
+      grounded = true; vy = 0; coyoteTimer = 0;
+      return true;
+    }
+    return false;
+  }
+
+  function getMuzzlePose(outPos = new THREE.Vector3(), outQuat = new THREE.Quaternion()) {
+    // world position of the muzzle (fallback to camera if not in scene yet)
+    gunMuzzle.updateWorldMatrix(true, false);
+    TMP_MAT4.copy(gunMuzzle.matrixWorld);
+    outPos.setFromMatrixPosition(TMP_MAT4);
+    TMP_MAT4.decompose(TMP_VEC3, outQuat, new THREE.Vector3());
+    return { pos: outPos, rot: outQuat };
+  }
+
+  function update(dt, input, staticColliders, walkableMeshes, turnMode, snapAngleDeg) {
+    // Turn
     if (turnMode === 'smooth') {
       playerYRotation -= input.turnAxis.x * 0.05;
-    } else {
-      if (input.turnSnapDeltaRad) {
-        playerYRotation += input.turnSnapDeltaRad;
-      }
+    } else if (input.turnSnapDeltaRad) {
+      playerYRotation += input.turnSnapDeltaRad;
     }
     group.rotation.y = playerYRotation;
 
-    // Move
+    // Movement axes
+    let wantMove = false;
+    let horizDelta = TMP_VEC3.set(0,0,0);
     if (Math.abs(input.moveAxis.x) > 0 || Math.abs(input.moveAxis.y) > 0) {
       direction.set(input.moveAxis.x, 0, input.moveAxis.y).normalize();
       direction.applyMatrix4(new THREE.Matrix4().makeRotationY(playerYRotation));
       velocity.x = direction.x * moveSpeed;
       velocity.z = direction.z * moveSpeed;
+      horizDelta = TMP_VEC3.set(velocity.x * dt, 0, velocity.z * dt);
+      wantMove = true;
     } else {
       velocity.set(0, 0, 0);
     }
@@ -402,48 +197,43 @@ export function createPlayer(renderer) {
     vy += GRAV * dt;
 
     const newPos = group.position.clone();
-    newPos.x += velocity.x * dt;
-    newPos.z += velocity.z * dt;
+
+    // vertical integrate
     newPos.y += vy * dt;
+    ceilingBlock(newPos, walkableMeshes);
 
-    const playerHeight = 1.6;
-    const playerRadius = 0.5;
-    let finalPos = newPos.clone();
+    // horizontal integrate with simple collision
+    if (wantMove) {
+      newPos.add(horizDelta);
+    }
 
-    // Seiten-Kollisionen
-    for (const { box, obj } of colliders) {
-      const pBox = {
-        minX: finalPos.x - playerRadius,
-        maxX: finalPos.x + playerRadius,
-        minZ: finalPos.z - playerRadius,
-        maxZ: finalPos.z + playerRadius,
-        minY: finalPos.y,
-        maxY: finalPos.y + playerHeight
-      };
-      if (pBox.maxX > box.min.x && pBox.minX < box.max.x &&
-          pBox.maxZ > box.min.z && pBox.minZ < box.max.z) {
-        if (finalPos.y < box.max.y && finalPos.y + playerHeight > box.min.y) {
-          const oldBox = {
-            minX: group.position.x - playerRadius,
-            maxX: group.position.x + playerRadius,
-            minZ: group.position.z - playerRadius,
-            maxZ: group.position.z + playerRadius
-          };
-          if (!(oldBox.maxX > box.min.x && oldBox.minX < box.max.x)) finalPos.x = group.position.x;
-          if (!(oldBox.maxZ > box.min.z && oldBox.minZ < box.max.z)) finalPos.z = group.position.z;
+    // resolve collisions in XZ
+    resolveStaticCollision(newPos, staticColliders);
+
+    // Step-up pass (only if grounded or near ground and we moved horizontally)
+    if (wantMove && (grounded || coyoteTimer > 0.0)) {
+      const movedHoriz = TMP_VEC3.set(newPos.x - group.position.x, 0, newPos.z - group.position.z);
+      if (movedHoriz.lengthSq() > 1e-6) {
+        // try to step up if we got blocked (we can approximate by trying alternate pos)
+        const altPos = group.position.clone();
+        if (!tryStepUp(altPos, movedHoriz, walkableMeshes)) {
+          // no step found; keep current newPos (already collision-resolved)
+        } else {
+          newPos.copy(altPos);
         }
       }
     }
 
-    // Decke/Boden
-    blockCeiling(finalPos, dt, playerHeight, colliders);
-    const landed = landIfGroundClose(finalPos, walkables);
-    if (!landed && grounded && vy < 0) { grounded = false; coyoteTimer = COYOTE_MAX; }
+    // ground snap
+    if (!landIfGroundClose(newPos, walkableMeshes)) {
+      grounded = false;
+    }
 
-    group.position.copy(finalPos);
+    // commit
+    group.position.copy(newPos);
 
-    // Update visual effects
-    updateStatusLights(100); // Placeholder für Health-System
+    // post-grounding friction for vy
+    if (grounded) vy = Math.min(vy, 0);
   }
 
   function onResize(w, h) {
@@ -451,14 +241,11 @@ export function createPlayer(renderer) {
     camera.updateProjectionMatrix();
   }
 
-  // Initial weapon attachment
-  attachGunTo('left');
-
   return {
     group, camera,
     controllerLeft, controllerRight, gripLeft, gripRight,
-    attachGunTo, switchWeapon, showMuzzleFlash,
-    update, onResize,
-    getCurrentWeapon: () => currentWeapon.userData.weaponType
+    gun, gunMuzzle, attachGunTo,
+    getMuzzlePose,
+    update, onResize
   };
 }
