@@ -28,7 +28,7 @@ export function buildLevel(scene) {
   };
   const addWalkable = (obj) => walkableMeshes.push(obj);
 
-  // Enhanced Ground with vertex colors
+  // Enhanced Ground with vertex colors - ZURÜCK ZU 25x25 GRÖßE!
   const groundGeo = createComplexGround(25, 25, 0.8);
   addVertexColors(groundGeo, (pos) => {
     // Gradient basierend auf Höhe und Position
@@ -64,7 +64,7 @@ export function buildLevel(scene) {
   addStaticCollider(ground);
   addWalkable(ground);
 
-  // Enhanced Fortress with more details
+  // Enhanced Fortress with more details - ORIGINALE POSITIONEN UND GRÖßEN!
   const fortressGroup = new THREE.Group();
   
   // Materialien für verschiedene Fortress-Teile
@@ -76,7 +76,7 @@ export function buildLevel(scene) {
   const metalMaterial = makeMetallicMaterial(0x555555);
   const accentMaterial = makeEmissiveMaterial(0x0066CC, 0.3);
 
-  // Hauptwände mit mehr Details
+  // Hauptwände mit mehr Details - ORIGINALE GRÖßEN!
   const wall1Left = new THREE.Mesh(
     createDetailedGeometry('barrier', { width: 1.5, height: 3, depth: 0.5 }), 
     wallMaterial.clone()
@@ -91,7 +91,7 @@ export function buildLevel(scene) {
   wall1Right.position.set(1.75, 1.5, 2.5);
   fortressGroup.add(wall1Right); addStaticCollider(wall1Right);
 
-  // Metallischer Türsturz
+  // Metallischer Türsturz - ORIGINALE GRÖßE!
   const lintel = new THREE.Mesh(
     new THREE.BoxGeometry(2.2, 0.4, 0.6), 
     metalMaterial.clone()
@@ -99,7 +99,7 @@ export function buildLevel(scene) {
   lintel.position.set(0, 2.8, 2.5);
   fortressGroup.add(lintel); addStaticCollider(lintel);
 
-  // Verstärkte Rückwand mit Akzenten
+  // Verstärkte Rückwand mit Akzenten - ORIGINALE GRÖßE!
   const wallBack = new THREE.Mesh(
     createDetailedGeometry('barrier', { width: 5, height: 3, depth: 0.5 }), 
     wallMaterial.clone()
@@ -115,7 +115,7 @@ export function buildLevel(scene) {
   backAccent.position.set(0, 2.5, -2.45);
   fortressGroup.add(backAccent);
 
-  // Seitenwände
+  // Seitenwände - ORIGINALE GRÖßEN!
   const wallLeft = new THREE.Mesh(
     createDetailedGeometry('barrier', { width: 0.5, height: 3, depth: 5 }), 
     wallMaterial.clone()
@@ -130,7 +130,7 @@ export function buildLevel(scene) {
   wallRight.position.set(-2.5, 1.5, 0);
   fortressGroup.add(wallRight); addStaticCollider(wallRight);
 
-  // Dach mit metallischen Details
+  // Dach mit metallischen Details - ORIGINALE GRÖßE!
   const roof = new THREE.Mesh(
     createDetailedGeometry('platform', { width: 5, height: 0.5, depth: 5 }), 
     metalMaterial.clone()
@@ -153,7 +153,7 @@ export function buildLevel(scene) {
     fortressGroup.add(roofLight);
   }
 
-  // Verbesserter Innenboden
+  // Verbesserter Innenboden - ORIGINALE GRÖßE!
   const interiorMat = makeVariedStandardMaterial(0x7A3E12, {
     roughnessRange: 0.3,
     metalnessRange: 0.15
@@ -180,7 +180,7 @@ export function buildLevel(scene) {
 
   scene.add(fortressGroup);
 
-  // No-Spawn-Zones (erweitert)
+  // No-Spawn-Zones (ORIGINAL WERTE!)
   const forbiddenZones = [
     new THREE.Box3(new THREE.Vector3(-3.0, 0.0, -3.0), new THREE.Vector3(3.0, 4.5, 3.2)),
     new THREE.Box3(new THREE.Vector3(-1.5, 0.0, 1.0),  new THREE.Vector3(1.5, 3.5, 4.5)),
@@ -188,7 +188,7 @@ export function buildLevel(scene) {
 
   const intersectsForbidden = (box) => forbiddenZones.some(f => box.intersectsBox(f));
 
-  // Vielfältigere Obstacle-Typen
+  // Vielfältigere Obstacle-Typen - ZURÜCK ZU 12 OBSTACLES!
   const obstacleTypes = [
     { type: 'crate', material: 'varied', color: 0xA0522D },
     { type: 'crate', material: 'metallic', color: 0x708090 },
@@ -246,8 +246,7 @@ export function buildLevel(scene) {
 
     const obstacle = new THREE.Mesh(geometry, material);
 
-    // Berechne Bounding Box korrekt - HIER IST DIE LÖSUNG!
-    // Statt setFromGeometry verwenden wir setFromObject nach dem Mesh erstellt wurde
+    // Berechne Bounding Box korrekt - KORRIGIERTE VERSION!
     const tempMesh = new THREE.Mesh(geometry);
     const tempBox = new THREE.Box3().setFromObject(tempMesh);
     const sizeVec = tempBox.getSize(new THREE.Vector3());
@@ -257,8 +256,8 @@ export function buildLevel(scene) {
 
     let placed = false;
     for (let a = 0; a < 80 && !placed; a++) {
-      const x = randBetween(-12, 12);
-      const z = randBetween(-12, 12);
+      const x = randBetween(-12, 12);  // ORIGINALER SPAWN-BEREICH!
+      const z = randBetween(-12, 12);  // ORIGINALER SPAWN-BEREICH!
       const y = hy + 0.1; // Leicht über dem Boden
       
       const min = new THREE.Vector3(x - hx, 0, z - hz);
