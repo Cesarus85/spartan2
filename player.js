@@ -1,0 +1,172 @@
+// player.js
+import { THREE } from './deps.js';
+import { makeVariedStandardMaterial } from './utils.js';
+
+export function createPlayer(renderer) {
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+  const group = new THREE.Group();
+  group.position.set(0, 3.25 + 1.6, 0);
+  group.add(camera);
+
+  // Body
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
+    makeVariedStandardMaterial(0x006400)
+  );
+  body.position.y = -1.6;
+  group.add(body);
+
+  // Controllers
+  const controllerLeft  = renderer.xr.getController(0);
+  const controllerRight = renderer.xr.getController(1);
+  const gripLeft  = renderer.xr.getControllerGrip(0);
+  const gripRight = renderer.xr.getControllerGrip(1);
+  group.add(controllerLeft, controllerRight, gripLeft, gripRight);
+
+  // Gun
+  const gun = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 0.1, 0.5),
+    makeVariedStandardMaterial(0x808080)
+  );
+  gun.position.set(0, -0.1, -0.3);
+
+  function attachGunTo(hand) {
+    gun.removeFromParent();
+    if (hand === 'right') controllerRight.add(gun);
+    else controllerLeft.add(gun);
+  }
+
+  // Movement/Physics state
+  const velocity = new THREE.Vector3();
+  const direction = new THREE.Vector3();
+  const moveSpeed = 5;
+
+  let vy = 0;
+  let grounded = false;
+  let coyoteTimer = 0;
+  const COYOTE_MAX = 0.1;
+  const JUMP = 8;
+  const GRAV = -9.8 * 0.5;
+  const PROBE = 0.25;
+
+  const downRay = new THREE.Raycaster();
+  const downDir = new THREE.Vector3(0, -1, 0);
+  const upRay   = new THREE.Raycaster();
+  const upDir   = new THREE.Vector3(0, 1, 0);
+
+  let playerYRotation = 0;
+
+  function landIfGroundClose(pos, walkables) {
+    downRay.set(new THREE.Vector3(pos.x, pos.y + 0.2, pos.z), downDir);
+    const hits = downRay.intersectObjects(walkables, true);
+    if (!hits.length) return false;
+    const hit = hits[0];
+    if (vy <= 0 && hit.distance <= (0.2 + PROBE)) {
+      pos.y = pos.y + 0.2 - hit.distance;
+      vy = 0; grounded = true; coyoteTimer = 0;
+      return true;
+    }
+    return false;
+  }
+
+  function blockCeiling(pos, dt, playerHeight, colliders) {
+    if (vy <= 0) return;
+    const headOldY = group.position.y + playerHeight;
+    upRay.set(new THREE.Vector3(pos.x, headOldY, pos.z), upDir);
+    upRay.far = (vy * dt) + 0.05;
+    const hits = upRay.intersectObjects(colliders.map(e => e.obj), true);
+    if (!hits.length) return;
+    const hit = hits[0];
+    const clampY = hit.point.y - playerHeight;
+    if (pos.y > clampY) pos.y = clampY;
+    vy = 0;
+  }
+
+  function update(dt, input, colliders, walkables, turnMode, snapAngleDeg) {
+    // Turning
+    if (turnMode === 'smooth') {
+      playerYRotation -= input.turnAxis.x * 0.05;
+    } else {
+      // Snap wird per Cooldown in input nicht gesteuert -> wir machen's hier:
+      // Der Cooldown steckt sinnvollerweise in main; hier nur Yaw-Anpassung auf Signal:
+      // Wir erwarten: input.turnSnapDeltaRad ∈ {0, ±angle} (siehe main)
+      if (input.turnSnapDeltaRad) {
+        playerYRotation += input.turnSnapDeltaRad;
+      }
+    }
+    group.rotation.y = playerYRotation;
+
+    // Move
+    if (Math.abs(input.moveAxis.x) > 0 || Math.abs(input.moveAxis.y) > 0) {
+      direction.set(input.moveAxis.x, 0, input.moveAxis.y).normalize();
+      direction.applyMatrix4(new THREE.Matrix4().makeRotationY(playerYRotation));
+      velocity.x = direction.x * moveSpeed;
+      velocity.z = direction.z * moveSpeed;
+    } else {
+      velocity.set(0, 0, 0);
+    }
+
+    // Jump/Gravity
+    if (!grounded) coyoteTimer = Math.max(0, coyoteTimer - dt);
+    if (input.jumpPressed && (grounded || coyoteTimer > 0)) {
+      vy = JUMP; grounded = false; coyoteTimer = 0;
+    }
+    vy += GRAV * dt;
+
+    const newPos = group.position.clone();
+    newPos.x += velocity.x * dt;
+    newPos.z += velocity.z * dt;
+    newPos.y += vy * dt;
+
+    const playerHeight = 1.6;
+    const playerRadius = 0.5;
+    let finalPos = newPos.clone();
+
+    // Seiten-Kollisionen
+    for (const { box, obj } of colliders) {
+      // simplify: skip floor/roof checks hier? (ok – Level ist „leicht“)
+      const pBox = {
+        minX: finalPos.x - playerRadius,
+        maxX: finalPos.x + playerRadius,
+        minZ: finalPos.z - playerRadius,
+        maxZ: finalPos.z + playerRadius,
+        minY: finalPos.y,
+        maxY: finalPos.y + playerHeight
+      };
+      if (pBox.maxX > box.min.x && pBox.minX < box.max.x &&
+          pBox.maxZ > box.min.z && pBox.minZ < box.max.z) {
+        if (finalPos.y < box.max.y && finalPos.y + playerHeight > box.min.y) {
+          const oldBox = {
+            minX: group.position.x - playerRadius,
+            maxX: group.position.x + playerRadius,
+            minZ: group.position.z - playerRadius,
+            maxZ: group.position.z + playerRadius
+          };
+          if (!(oldBox.maxX > box.min.x && oldBox.minX < box.max.x)) finalPos.x = group.position.x;
+          if (!(oldBox.maxZ > box.min.z && oldBox.minZ < box.max.z)) finalPos.z = group.position.z;
+        }
+      }
+    }
+
+    // Decke/Boden
+    blockCeiling(finalPos, dt, playerHeight, colliders);
+    const landed = landIfGroundClose(finalPos, walkables);
+    if (!landed && grounded && vy < 0) { grounded = false; coyoteTimer = COYOTE_MAX; }
+
+    group.position.copy(finalPos);
+  }
+
+  function onResize(w, h) {
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+
+  return {
+    group, camera,
+    controllerLeft, controllerRight, gripLeft, gripRight,
+    gun, attachGunTo,
+    update, onResize
+  };
+}
+
