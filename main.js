@@ -4,6 +4,8 @@ import { FOG, buildLevel } from './level.js';
 import { createPlayer } from './player.js';
 import { createCombat } from './combat.js';
 import { initKeyboard, initOverlay, initHUD, readXRInput, getInputState, settings, refreshHUD } from './input.js';
+import { createAIManager } from './ai.js';
+
 
 // Renderer/Scene
 const scene = new THREE.Scene();
@@ -36,6 +38,9 @@ scene.add(player.group);
 
 // Combat
 const combat = createCombat(scene, player, staticColliders);
+
+// AI Manager
+const ai = createAIManager(scene, player, staticColliders, walkableMeshes);
 
 // Input
 initKeyboard();
@@ -73,6 +78,9 @@ function onRenderFrame() {
     player.update(FIXED_DT, input, staticColliders, walkableMeshes, settings.turnMode, settings.snapAngleDeg);
     // Combat Update
     combat.update(FIXED_DT, input, settings);
+
+    // AI Update
+    ai.update(FIXED_DT);
 
     accumulator -= FIXED_DT;
     steps++;
