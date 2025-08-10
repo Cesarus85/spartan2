@@ -25,24 +25,31 @@ dir.position.set(5,10,3);
 scene.add(dir);
 
 // Level
-const { staticColliders, walkableMeshes } = buildLevel(scene);
+const { staticColliders, walkableMeshes, refs } = buildLevel(scene);
 
 // Player & Systems
 const player = createPlayer(renderer);
 scene.add(player.group);
 
+// Safe spawn: center of interior floor
+const spawnY = (refs?.interiorFloor?.position?.y ?? 0.05) + 1.6;
+player.teleportTo(0, spawnY, 0, walkableMeshes, staticColliders);
+
+// Systems
 const combat = createCombat(scene, player, staticColliders);
 
 // Pre-VR overlay & keyboard
 initOverlay(document.getElementById('overlay'), (s)=>{
-  // when settings change: apply weapon hand + refresh HUD labels
   player.attachGunTo(s.weaponHand);
   refreshHUD();
 });
 const { updateFromKeyboard } = initKeyboard();
 
-// In-Game HUD (NEW: honor settings.hudEnabled)
-initHUD(scene, player, settings.hudEnabled);
+// In-Game HUD (smaller & default off)
+initHUD(scene, player, settings.hudEnabled, settings.hudScale);
+
+// Make sure gun is attached initially
+player.attachGunTo(settings.weaponHand);
 
 // Resize
 window.addEventListener('resize', () => {
@@ -72,7 +79,6 @@ function onRenderFrame() {
     player.update(FIXED_DT, input, staticColliders, walkableMeshes, settings.turnMode, settings.snapAngleDeg);
     // Combat Update
     combat.update(FIXED_DT, input, settings);
-
     accumulator -= FIXED_DT;
     steps++;
   }
