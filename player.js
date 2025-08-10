@@ -1,6 +1,6 @@
 // player.js
 import { THREE } from './deps.js';
-import { makeVariedStandardMaterial } from './utils.js';
+import { makeVariedStandardMaterial, makeMetallicMaterial, makeEmissiveMaterial } from './utils.js';
 
 export function createPlayer(renderer) {
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -9,13 +9,74 @@ export function createPlayer(renderer) {
   group.position.set(0, 3.25 + 1.6, 0);
   group.add(camera);
 
-  // Body
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
-    makeVariedStandardMaterial(0x006400)
+  // Detaillierterer Spielerkörper
+  const bodyGroup = new THREE.Group();
+  bodyGroup.position.y = -1.6;
+  
+  // Hauptkörper (Torso)
+  const torso = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.4, 1.2, 4, 8),
+    makeVariedStandardMaterial(0x006400, { 
+      roughnessRange: 0.3,
+      metalnessRange: 0.1 
+    })
   );
-  body.position.y = -1.6;
-  group.add(body);
+  bodyGroup.add(torso);
+
+  // Rüstungsplatten
+  const chestPlate = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.8, 0.15),
+    makeMetallicMaterial(0x2F4F4F)
+  );
+  chestPlate.position.set(0, 0.2, 0.35);
+  bodyGroup.add(chestPlate);
+
+  // Schulterpolster
+  const leftShoulder = new THREE.Mesh(
+    new THREE.BoxGeometry(0.25, 0.3, 0.4),
+    makeMetallicMaterial(0x696969)
+  );
+  leftShoulder.position.set(-0.45, 0.4, 0);
+  bodyGroup.add(leftShoulder);
+
+  const rightShoulder = new THREE.Mesh(
+    new THREE.BoxGeometry(0.25, 0.3, 0.4),
+    makeMetallicMaterial(0x696969)
+  );
+  rightShoulder.position.set(0.45, 0.4, 0);
+  bodyGroup.add(rightShoulder);
+
+  // Helm-Andeutung (für VR nicht sichtbar, aber für Multiplayer später)
+  const helmet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.35, 8, 8),
+    makeMetallicMaterial(0x1C1C1C)
+  );
+  helmet.position.set(0, 0.9, 0);
+  bodyGroup.add(helmet);
+
+  // Visor mit Emissive-Effect
+  const visor = new THREE.Mesh(
+    new THREE.SphereGeometry(0.36, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.6),
+    makeEmissiveMaterial(0x00AAFF, 0.3)
+  );
+  visor.position.set(0, 0.9, 0);
+  visor.material.transparent = true;
+  visor.material.opacity = 0.7;
+  bodyGroup.add(visor);
+
+  // Status-LEDs auf der Rüstung
+  const statusLights = [];
+  for (let i = 0; i < 3; i++) {
+    const led = new THREE.Mesh(
+      new THREE.SphereGeometry(0.03, 6, 6),
+      makeEmissiveMaterial(i === 0 ? 0x00FF00 : 0x444444, i === 0 ? 0.8 : 0.2)
+    );
+    led.position.set(-0.2 + i * 0.2, 0.1, 0.43);
+    bodyGroup.add(led);
+    statusLights.push(led);
+  }
+
+  group.add(bodyGroup);
 
   // Controllers
   const controllerLeft  = renderer.xr.getController(0);
@@ -24,17 +85,231 @@ export function createPlayer(renderer) {
   const gripRight = renderer.xr.getControllerGrip(1);
   group.add(controllerLeft, controllerRight, gripLeft, gripRight);
 
-  // Gun
-  const gun = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.1, 0.5),
-    makeVariedStandardMaterial(0x808080)
-  );
-  gun.position.set(0, -0.1, -0.3);
+  // Erweiterte Waffenmodelle
+  const weapons = {
+    assaultRifle: createAssaultRifle(),
+    battleRifle: createBattleRifle(),
+    pistol: createPistol()
+  };
+
+  let currentWeapon = weapons.assaultRifle;
+
+  function createAssaultRifle() {
+    const weaponGroup = new THREE.Group();
+    
+    // Hauptkörper
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.12, 0.6),
+      makeMetallicMaterial(0x2F2F2F)
+    );
+    body.position.set(0, -0.05, -0.3);
+    weaponGroup.add(body);
+
+    // Lauf
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02, 0.025, 0.4, 8),
+      makeMetallicMaterial(0x1C1C1C)
+    );
+    barrel.rotation.z = Math.PI / 2;
+    barrel.position.set(0, 0.03, -0.5);
+    weaponGroup.add(barrel);
+
+    // Mündungsfeuer-Effekt (unsichtbar bis zum Schuss)
+    const muzzleFlash = new THREE.Mesh(
+      new THREE.SphereGeometry(0.05, 6, 6),
+      makeEmissiveMaterial(0xFFAA00, 1.0)
+    );
+    muzzleFlash.position.set(0, 0.03, -0.7);
+    muzzleFlash.visible = false;
+    weaponGroup.add(muzzleFlash);
+
+    // Magazin
+    const magazine = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.25, 0.08),
+      makeMetallicMaterial(0x404040)
+    );
+    magazine.position.set(0, -0.25, -0.15);
+    weaponGroup.add(magazine);
+
+    // Scope/Visier
+    const scope = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.015, 0.015, 0.15, 8),
+      makeMetallicMaterial(0x1A1A1A)
+    );
+    scope.rotation.z = Math.PI / 2;
+    scope.position.set(0, 0.08, -0.2);
+    weaponGroup.add(scope);
+
+    // LED-Ammo-Counter
+    const ammoDisplay = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.04, 0.02),
+      makeEmissiveMaterial(0x00FF00, 0.6)
+    );
+    ammoDisplay.position.set(0.05, 0, -0.1);
+    ammoDisplay.rotation.y = -Math.PI / 2;
+    weaponGroup.add(ammoDisplay);
+
+    weaponGroup.userData = {
+      muzzleFlash,
+      ammoDisplay,
+      weaponType: 'AR'
+    };
+
+    return weaponGroup;
+  }
+
+  function createBattleRifle() {
+    const weaponGroup = new THREE.Group();
+    
+    // Größerer, massiverer Körper
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.14, 0.7),
+      makeMetallicMaterial(0x4A4A4A)
+    );
+    body.position.set(0, -0.05, -0.35);
+    weaponGroup.add(body);
+
+    // Dicker Lauf
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.025, 0.03, 0.5, 8),
+      makeMetallicMaterial(0x2F2F2F)
+    );
+    barrel.rotation.z = Math.PI / 2;
+    barrel.position.set(0, 0.04, -0.6);
+    weaponGroup.add(barrel);
+
+    // Muzzle Brake
+    const muzzleBrake = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.035, 0.03, 0.08, 6),
+      makeMetallicMaterial(0x1C1C1C)
+    );
+    muzzleBrake.rotation.z = Math.PI / 2;
+    muzzleBrake.position.set(0, 0.04, -0.82);
+    weaponGroup.add(muzzleBrake);
+
+    // Mündungsfeuer
+    const muzzleFlash = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 6, 6),
+      makeEmissiveMaterial(0xFF6600, 1.0)
+    );
+    muzzleFlash.position.set(0, 0.04, -0.86);
+    muzzleFlash.visible = false;
+    weaponGroup.add(muzzleFlash);
+
+    // Großes Magazin
+    const magazine = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.3, 0.1),
+      makeMetallicMaterial(0x333333)
+    );
+    magazine.position.set(0, -0.3, -0.2);
+    weaponGroup.add(magazine);
+
+    // Erweiterte Optik
+    const scope = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.06, 0.2),
+      makeMetallicMaterial(0x0A0A0A)
+    );
+    scope.position.set(0, 0.1, -0.25);
+    weaponGroup.add(scope);
+
+    weaponGroup.userData = {
+      muzzleFlash,
+      weaponType: 'BR'
+    };
+
+    return weaponGroup;
+  }
+
+  function createPistol() {
+    const weaponGroup = new THREE.Group();
+    
+    // Kompakter Körper
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.08, 0.25),
+      makeMetallicMaterial(0x404040)
+    );
+    body.position.set(0, -0.02, -0.15);
+    weaponGroup.add(body);
+
+    // Kurzer Lauf
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.015, 0.02, 0.15, 8),
+      makeMetallicMaterial(0x2A2A2A)
+    );
+    barrel.rotation.z = Math.PI / 2;
+    barrel.position.set(0, 0.02, -0.25);
+    weaponGroup.add(barrel);
+
+    // Kleines Magazin
+    const magazine = new THREE.Mesh(
+      new THREE.BoxGeometry(0.04, 0.15, 0.05),
+      makeMetallicMaterial(0x333333)
+    );
+    magazine.position.set(0, -0.15, -0.08);
+    weaponGroup.add(magazine);
+
+    const muzzleFlash = new THREE.Mesh(
+      new THREE.SphereGeometry(0.03, 6, 6),
+      makeEmissiveMaterial(0xFFAA00, 1.0)
+    );
+    muzzleFlash.position.set(0, 0.02, -0.32);
+    muzzleFlash.visible = false;
+    weaponGroup.add(muzzleFlash);
+
+    weaponGroup.userData = {
+      muzzleFlash,
+      weaponType: 'Pistol'
+    };
+
+    return weaponGroup;
+  }
 
   function attachGunTo(hand) {
-    gun.removeFromParent();
-    if (hand === 'right') controllerRight.add(gun);
-    else controllerLeft.add(gun);
+    // Entferne aktuelle Waffe
+    currentWeapon.removeFromParent();
+    
+    // Füge zu entsprechender Hand hinzu
+    if (hand === 'right') {
+      controllerRight.add(currentWeapon);
+    } else {
+      controllerLeft.add(currentWeapon);
+    }
+  }
+
+  function switchWeapon(weaponType) {
+    const wasAttached = currentWeapon.parent;
+    currentWeapon.removeFromParent();
+    
+    switch (weaponType) {
+      case 'AR':
+        currentWeapon = weapons.assaultRifle;
+        break;
+      case 'BR':
+        currentWeapon = weapons.battleRifle;
+        break;
+      case 'Pistol':
+        currentWeapon = weapons.pistol;
+        break;
+    }
+    
+    if (wasAttached) {
+      wasAttached.add(currentWeapon);
+    }
+  }
+
+  function showMuzzleFlash() {
+    const muzzleFlash = currentWeapon.userData.muzzleFlash;
+    if (muzzleFlash) {
+      muzzleFlash.visible = true;
+      // Zufällige Rotation für Variation
+      muzzleFlash.rotation.z = Math.random() * Math.PI * 2;
+      muzzleFlash.scale.setScalar(0.5 + Math.random() * 0.5);
+      
+      // Flash nach kurzer Zeit ausblenden
+      setTimeout(() => {
+        muzzleFlash.visible = false;
+      }, 50);
+    }
   }
 
   // Movement/Physics state
@@ -83,14 +358,26 @@ export function createPlayer(renderer) {
     vy = 0;
   }
 
+  function updateStatusLights(health = 100) {
+    statusLights.forEach((light, index) => {
+      if (health > (index + 1) * 33) {
+        light.material.emissive.setHex(0x00FF00);
+        light.material.emissiveIntensity = 0.8;
+      } else if (health > index * 33) {
+        light.material.emissive.setHex(0xFFAA00);
+        light.material.emissiveIntensity = 0.6;
+      } else {
+        light.material.emissive.setHex(0xFF0000);
+        light.material.emissiveIntensity = 0.3;
+      }
+    });
+  }
+
   function update(dt, input, colliders, walkables, turnMode, snapAngleDeg) {
     // Turning
     if (turnMode === 'smooth') {
       playerYRotation -= input.turnAxis.x * 0.05;
     } else {
-      // Snap wird per Cooldown in input nicht gesteuert -> wir machen's hier:
-      // Der Cooldown steckt sinnvollerweise in main; hier nur Yaw-Anpassung auf Signal:
-      // Wir erwarten: input.turnSnapDeltaRad ∈ {0, ±angle} (siehe main)
       if (input.turnSnapDeltaRad) {
         playerYRotation += input.turnSnapDeltaRad;
       }
@@ -125,7 +412,6 @@ export function createPlayer(renderer) {
 
     // Seiten-Kollisionen
     for (const { box, obj } of colliders) {
-      // simplify: skip floor/roof checks hier? (ok – Level ist „leicht“)
       const pBox = {
         minX: finalPos.x - playerRadius,
         maxX: finalPos.x + playerRadius,
@@ -155,6 +441,9 @@ export function createPlayer(renderer) {
     if (!landed && grounded && vy < 0) { grounded = false; coyoteTimer = COYOTE_MAX; }
 
     group.position.copy(finalPos);
+
+    // Update visual effects
+    updateStatusLights(100); // Placeholder für Health-System
   }
 
   function onResize(w, h) {
@@ -162,10 +451,14 @@ export function createPlayer(renderer) {
     camera.updateProjectionMatrix();
   }
 
+  // Initial weapon attachment
+  attachGunTo('left');
+
   return {
     group, camera,
     controllerLeft, controllerRight, gripLeft, gripRight,
-    gun, attachGunTo,
-    update, onResize
+    attachGunTo, switchWeapon, showMuzzleFlash,
+    update, onResize,
+    getCurrentWeapon: () => currentWeapon.userData.weaponType
   };
 }
