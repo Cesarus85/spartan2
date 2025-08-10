@@ -98,7 +98,7 @@ export function createPlayer(renderer) {
     for (const { box } of colliders) {
       if (pBoxTop.maxX > box.min.x && pBoxTop.minX < box.max.x &&
           pBoxTop.maxZ > box.min.z && pBoxTop.minZ < box.max.z) {
-        if (pBoxTop.y < box.max.y && (pBoxTop.maxY) > box.min.y) {
+        if (pBoxTop.minY < box.max.y && pBoxTop.maxY > box.min.y) {
           return false; // weiterhin Kollisionskonflikt oben
         }
       }
@@ -196,8 +196,7 @@ export function createPlayer(renderer) {
           if (grounded) {
             const fwdDir = new THREE.Vector3(direction.x, 0, direction.z);
             if (tryStepUp(group.position, finalPos, fwdDir, colliders, walkables, playerRadius, playerHeight)) {
-              // Steigen gelungen -> nächste Kollisionen mit neuer Höhe prüfen
-              continue;
+              // Steigen gelungen -> wir prüfen im Anschluss die Kollisionen mit der neuen Höhe erneut
             }
           }
           const oldBox = {
