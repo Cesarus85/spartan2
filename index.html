@@ -8,7 +8,6 @@
     :root { color-scheme: dark; }
     body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
     canvas { display: block; }
-    /* kleines Pre-VR Overlay, um Settings auch vor dem Eintritt setzen zu können */
     #overlay {
       position: fixed; inset: 12px auto auto 12px; background: rgba(0,0,0,.6);
       padding: 10px 12px; border-radius: 10px; color: #fff; z-index: 10; backdrop-filter: blur(4px);
@@ -54,6 +53,13 @@ import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.179.0/examples/js
 
 // --- Renderer / Scene / Camera ---
 const scene = new THREE.Scene();
+
+// FOG (linear)
+const FOG_COLOR = 0x87CEEB;      // passt zum Himmel
+const FOG_NEAR  = 12;
+const FOG_FAR   = 45;
+scene.fog = new THREE.Fog(FOG_COLOR, FOG_NEAR, FOG_FAR);
+
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -61,6 +67,9 @@ renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
+// Hintergrund an Fog-Farbe angleichen → keine Horizontkante
+renderer.setClearColor(FOG_COLOR, 1);
+
 document.body.appendChild(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer));
 const clock = new THREE.Clock();
@@ -80,7 +89,7 @@ playerGroup.add(camera);
 // Spartan-„Body“
 const playerBody = new THREE.Mesh(
   new THREE.CapsuleGeometry(0.5, 1.5, 4, 8),
-  new THREE.MeshStandardMaterial({ color: 0x006400 })
+  new THREE.MeshStandardMaterial({ color: 0x006400 }) // fog wirkt automatisch auf Standard-Material
 );
 playerBody.position.y = -1.6;
 playerGroup.add(playerBody);
@@ -100,11 +109,11 @@ const gun = new THREE.Mesh(
 );
 gun.position.set(0,-0.1,-0.3);
 
-// --- SETTINGS (live veränderbar) ---
+// --- SETTINGS ---
 const settings = {
-  turnMode: 'smooth',   // 'smooth' | 'snap'
-  snapAngleDeg: 30,     // 30 | 45
-  weaponHand: 'left',   // 'left' | 'right'
+  turnMode: 'smooth',
+  snapAngleDeg: 30,
+  weaponHand: 'left',
 };
 
 // Pre-VR overlay bind
@@ -140,7 +149,6 @@ function addWalkable(obj){ walkableMeshes.push(obj); }
 // --- Ground ---
 const groundGeometry = new THREE.PlaneGeometry(20,20,20,20);
 groundGeometry.rotateX(-Math.PI/2);
-// Unebenheiten
 const verts = groundGeometry.attributes.position.array;
 for (let i=2; i<verts.length; i+=3) verts[i] += Math.random()*0.5 - 0.25;
 groundGeometry.attributes.position.needsUpdate = true;
@@ -152,7 +160,7 @@ scene.add(ground);
 addStaticCollider(ground);
 addWalkable(ground);
 
-// --- Fortress (erst Festung, dann Hindernisse!) ---
+// --- Fortress ---
 const fortressGroup = new THREE.Group();
 const wallMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
 
@@ -190,13 +198,13 @@ fortressGroup.add(interiorFloor); addStaticCollider(interiorFloor); addWalkable(
 
 scene.add(fortressGroup);
 
-// --- No-Spawn-Zonen definieren ---
+// --- No-Spawn-Zonen ---
 const forbiddenZones = [
-  new THREE.Box3(new THREE.Vector3(-2.7,0.0,-2.7), new THREE.Vector3(2.7,4.5,2.9)), // Festung
-  new THREE.Box3(new THREE.Vector3(-1.2,0.0,1.2),  new THREE.Vector3(1.2,3.0,4.0)), // Tor-Korridor
+  new THREE.Box3(new THREE.Vector3(-2.7,0.0,-2.7), new THREE.Vector3(2.7,4.5,2.9)),
+  new THREE.Box3(new THREE.Vector3(-1.2,0.0,1.2),  new THREE.Vector3(1.2,3.0,4.0)),
 ];
 
-// --- Hindernisse (NACH Festung, mit Avoid-Spawn) ---
+// --- Hindernisse ---
 function intersectsForbidden(box){
   for (const forb of forbiddenZones){
     if (box.intersectsBox(forb)) return true;
@@ -212,7 +220,7 @@ function placeBlockAvoiding(block, attempts = 60){
   for (let i=0; i<attempts; i++){
     const x = Math.random()*20 - 10;
     const z = Math.random()*20 - 10;
-    const y = hy; // auf Boden stellen
+    const y = hy;
 
     const min = new THREE.Vector3(x - hx, 0, z - hz);
     const max = new THREE.Vector3(x + hx, y*2, z + hz);
@@ -239,16 +247,13 @@ for (let i=0; i<10; i++){
   addWalkable(w);
 }
 
-// --- Sky + Ring ---
-const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(500,32,32),
-  new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide })
-);
+// --- Sky + Ring (vom Fog ausnehmen) ---
+const skyMaterial = new THREE.MeshBasicMaterial({ color: FOG_COLOR, side: THREE.BackSide, fog: false });
+const sky = new THREE.Mesh(new THREE.SphereGeometry(500,32,32), skyMaterial);
 scene.add(sky);
-const haloRing = new THREE.Mesh(
-  new THREE.TorusGeometry(100,5,16,100),
-  new THREE.MeshBasicMaterial({ color: 0xFFFFFF })
-);
+
+const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFFFF, fog: false });
+const haloRing = new THREE.Mesh(new THREE.TorusGeometry(100,5,16,100), ringMaterial);
 haloRing.rotation.x = Math.PI/2;
 haloRing.position.set(0,200,-300);
 scene.add(haloRing);
@@ -260,7 +265,6 @@ let jumpPressed = false;
 let fireHeld = false;
 let rightBWasPressed = false;
 
-// Keyboard (Debug am Desktop)
 window.addEventListener('keydown', (e)=>{
   if (e.key==='w') moveAxis.y = -1;
   if (e.key==='s') moveAxis.y =  1;
@@ -280,18 +284,16 @@ window.addEventListener('keyup', (e)=>{
   if (e.key===' ') { jumpPressed = false; fireHeld = false; }
 });
 
-// XR Input per handedness
 function readXRInput(session){
   moveAxis.x = moveAxis.y = 0;
   turnAxis.x = turnAxis.y = 0;
   jumpPressed = false;
-  fireHeld = false; // wird unten gesetzt, wenn Trigger der aktiven Waffenhand gedrückt ist
+  fireHeld = false;
 
   for (const source of session.inputSources){
     if (!source.gamepad) continue;
     const { axes, buttons } = source.gamepad;
     const dead = 0.1;
-    // Quest/Wolvic meist: Stick auf axes[2]/[3]
     const axX = Math.abs(axes[2]||0) > dead ? axes[2] : 0;
     const axY = Math.abs(axes[3]||0) > dead ? axes[3] : 0;
 
@@ -300,18 +302,16 @@ function readXRInput(session){
     } else if (source.handedness === 'right'){
       turnAxis.x = axX; turnAxis.y = axY;
 
-      // A-Button (id=4) -> Jump (Quest)
-      jumpPressed = buttons.some((b,i)=> i===4 ? !!b.pressed : false);
-
-      // B-Button (id=5) -> Waffenwechsel
       const bPressed = (buttons[5] && buttons[5].pressed) || false;
       if (bPressed && !rightBWasPressed) {
         currentWeapon = (currentWeapon + 1) % weapons.length;
       }
       rightBWasPressed = bPressed;
+
+      // A-Button (id=4) -> Jump
+      if (buttons[4] && buttons[4].pressed) jumpPressed = true;
     }
 
-    // Trigger der gewählten Waffenhand
     const trigDown = (buttons[0] && buttons[0].pressed) || false;
     if (source.handedness === settings.weaponHand && trigDown){
       fireHeld = true;
@@ -324,7 +324,7 @@ function onXRFrame(){
   }
 }
 
-// Fallback Events (falls manche Browser selectstart/-end liefern möchten)
+// Fallback Events
 controllerLeft.addEventListener('selectstart', ()=> { if (settings.weaponHand==='left')  fireHeld = true;  });
 controllerLeft.addEventListener('selectend',   ()=> { if (settings.weaponHand==='left')  fireHeld = false; });
 controllerRight.addEventListener('selectstart',()=> { if (settings.weaponHand==='right') fireHeld = true;  });
@@ -409,33 +409,23 @@ function releaseBullet(m){
   bulletPool.push(m);
 }
 
-// --- Game Update (pro Tick/Fixed-Step) ---
-let snapCooldown = 0;            // in Sekunden
+// --- Game Update ---
+let snapCooldown = 0;
 function update(dt){
-  // Snap Cooldown abbauen
   if (snapCooldown > 0) snapCooldown = Math.max(0, snapCooldown - dt);
 
-  // Turning
   if (settings.turnMode === 'smooth'){
-    // kontinuierliches Yaw
     playerYRotation -= turnAxis.x * 0.05;
   } else {
-    // Snap-Turn (30°/45°) mit Deadzone & Cooldown
     const dead = 0.35;
     const angle = THREE.MathUtils.degToRad(settings.snapAngleDeg);
     if (snapCooldown === 0){
-      if (turnAxis.x <= -dead){
-        playerYRotation += angle; // nach links schauen → Drehung + (rechtskoords)
-        snapCooldown = 0.22;
-      } else if (turnAxis.x >= dead){
-        playerYRotation -= angle;
-        snapCooldown = 0.22;
-      }
+      if (turnAxis.x <= -dead){ playerYRotation += angle; snapCooldown = 0.22; }
+      else if (turnAxis.x >= dead){ playerYRotation -= angle; snapCooldown = 0.22; }
     }
   }
   playerGroup.rotation.y = playerYRotation;
 
-  // Move (X/Z)
   if (Math.abs(moveAxis.x) > 0 || Math.abs(moveAxis.y) > 0) {
     direction.set(moveAxis.x, 0, moveAxis.y).normalize();
     const yRot = new THREE.Matrix4().makeRotationY(playerYRotation);
@@ -446,7 +436,6 @@ function update(dt){
     velocity.x = 0; velocity.z = 0;
   }
 
-  // Vertical
   if (!grounded) coyoteTimer = Math.max(0, coyoteTimer - dt);
   if (jumpPressed && (grounded || coyoteTimer > 0)){
     vy = JUMP; grounded = false; coyoteTimer = 0;
@@ -462,7 +451,6 @@ function update(dt){
   const playerRadius = 0.5;
   let finalPos = newPos.clone();
 
-  // Seiten-Kollisionen (gegen statische Boxen)
   const wallEntries = staticColliders.filter(e => e.obj !== ground && e.obj !== interiorFloor && e.obj !== roof);
   for (const { box } of wallEntries){
     const pBox = {
@@ -488,14 +476,13 @@ function update(dt){
     }
   }
 
-  // Decke blocken, dann Bodenfang
   blockCeiling(finalPos, dt, playerHeight);
   const landed = landIfGroundClose(finalPos);
   if (!landed && grounded && vy < 0){ grounded = false; coyoteTimer = COYOTE_MAX; }
 
   playerGroup.position.copy(finalPos);
 
-  // Shooting (nur aktive Waffenhand)
+  // Shooting
   fireCooldown = Math.max(0, fireCooldown - dt);
   if (fireHeld && fireCooldown === 0){
     const w = weapons[currentWeapon];
@@ -514,7 +501,6 @@ function update(dt){
     bullets.push(bullet);
   }
 
-  // Bullets
   const staticObjs = staticColliders.map(e => e.obj);
   for (let i = bullets.length - 1; i >= 0; i--){
     const b = bullets[i];
@@ -525,9 +511,7 @@ function update(dt){
     const dist = b.velocity.length() * dt;
     ray.far = dist;
     const hits = ray.intersectObjects(staticObjs);
-    const hit = hits.length > 0;
-
-    if (hit || b.position.length() > 150){
+    if (hits.length || b.position.length() > 150){
       scene.remove(b);
       releaseBullet(b);
       bullets.splice(i,1);
@@ -535,9 +519,9 @@ function update(dt){
   }
 }
 
-// --- Minimal In-World HUD (3 Buttons) ---
+// --- Minimal In-World HUD (Fog-frei halten) ---
 const hudGroup = new THREE.Group();
-hudGroup.position.set(0,-0.2,-0.8); // unterhalb der Sicht
+hudGroup.position.set(0,-0.2,-0.8);
 camera.add(hudGroup);
 
 const btnGeo = new THREE.PlaneGeometry(0.24,0.08);
@@ -549,7 +533,7 @@ function makeButton(label){
   ctx.fillStyle = '#ffffff'; ctx.font = 'bold 36px system-ui,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.fillText(label, c.width/2, c.height/2);
   const tex = new THREE.CanvasTexture(c);
-  return new THREE.Mesh(btnGeo, new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
+  return new THREE.Mesh(btnGeo, new THREE.MeshBasicMaterial({ map: tex, transparent: true, fog: false }));
 }
 const btnTurnMode = makeButton('Turn: Smooth');
 const btnSnap     = makeButton('Snap: 30°');
@@ -561,10 +545,9 @@ btnHand.position.set(0.26, 0, 0);
 
 hudGroup.add(btnTurnMode, btnSnap, btnHand);
 
-// einfacher Ray vom rechten Controller für Button-Klicks
+// UI-Ray
 const uiRay = new THREE.Raycaster();
 function updateButtonTextures(){
-  // Turn
   {
     const c = btnTurnMode.material.map.image;
     const ctx = c.getContext('2d');
@@ -575,7 +558,6 @@ function updateButtonTextures(){
     ctx.fillText(`Turn: ${settings.turnMode==='smooth'?'Smooth':'Snap'}`, c.width/2, c.height/2);
     btnTurnMode.material.map.needsUpdate = true;
   }
-  // Snap
   {
     const c = btnSnap.material.map.image;
     const ctx = c.getContext('2d');
@@ -586,7 +568,6 @@ function updateButtonTextures(){
     ctx.fillText(`Snap: ${settings.snapAngleDeg}°`, c.width/2, c.height/2);
     btnSnap.material.map.needsUpdate = true;
   }
-  // Hand
   {
     const c = btnHand.material.map.image;
     const ctx = c.getContext('2d');
@@ -601,9 +582,7 @@ function updateButtonTextures(){
 }
 updateButtonTextures();
 
-// Klick-Handling (selectstart auf rechter Hand)
 controllerRight.addEventListener('selectstart', ()=>{
-  // Ray aus rechter Hand
   const origin = controllerRight.getWorldPosition(new THREE.Vector3());
   const dir = new THREE.Vector3(0,0,-1).applyQuaternion(controllerRight.getWorldQuaternion(new THREE.Quaternion())).normalize();
   uiRay.set(origin, dir);
@@ -612,7 +591,6 @@ controllerRight.addEventListener('selectstart', ()=>{
     const obj = hits[0].object;
     if (obj === btnTurnMode){
       settings.turnMode = (settings.turnMode==='smooth') ? 'snap' : 'smooth';
-      // Sync ins Overlay
       ovTurnMode.value = settings.turnMode;
     } else if (obj === btnSnap){
       settings.snapAngleDeg = (settings.snapAngleDeg===30) ? 45 : 30;
@@ -625,14 +603,13 @@ controllerRight.addEventListener('selectstart', ()=>{
   }
 });
 
-// --- Fixed-Timestep Loop (A) ---
-const FIXED_DT = 1/60;       // 60 Hz
-const MAX_STEPS = 5;         // Spiral-of-death Guard
+// --- Fixed-Timestep Loop ---
+const FIXED_DT = 1/60;
+const MAX_STEPS = 5;
 let accumulator = 0;
 
 function onRenderFrame(){
   const rawDt = clock.getDelta();
-  // clamp dt (z.B. beim Tab-Wechsel)
   const dt = Math.min(rawDt, 0.25);
   onXRFrame();
 
@@ -654,10 +631,8 @@ window.addEventListener('resize', ()=>{
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// --- Start / Attach gun initial ---
+// --- Start ---
 attachGunTo(settings.weaponHand);
-
-// --- START LOOP ---
 renderer.setAnimationLoop(onRenderFrame);
 </script>
 </body>
