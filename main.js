@@ -3,9 +3,9 @@ import { THREE, VRButton } from './deps.js';
 import { FOG, buildLevel } from './level.js';
 import { createPlayer } from './player.js';
 import { createCombat } from './combat.js';
-import { initKeyboard, initOverlay, initHUD, readXRInput, getInputState, settings, refreshHUD } from './input.js';
+import { initKeyboard, initOverlay, readXRInput, getInputState, settings } from './input.js';
 
-// Renderer/Scene
+// Scene/Renderer
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(FOG.COLOR, FOG.NEAR, FOG.FAR);
 
@@ -14,41 +14,60 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
-renderer.setClearColor(FOG.COLOR, 1);
 document.body.appendChild(renderer.domElement);
-document.body.appendChild(VRButton.createButton(renderer));
-
-const clock = new THREE.Clock();
-
-// Lights
-scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-dirLight.position.set(5, 10, 5);
-scene.add(dirLight);
-
-// Level
-const { staticColliders, walkableMeshes } = buildLevel(scene);
-
-// Player
-const player = createPlayer(renderer);
-scene.add(player.group);
-
-// Combat
-const combat = createCombat(scene, player, staticColliders);
-
-// Input
-initKeyboard();
-initOverlay((newHand) => { player.attachGunTo(newHand); refreshHUD(); });
-initHUD(player.camera, player.controllerRight, () => combat.cycleWeapon(), (newHand) => { player.attachGunTo(newHand); });
 
 // Resize
 window.addEventListener('resize', () => {
-  player.onResize(window.innerWidth, window.innerHeight);
   renderer.setSize(window.innerWidth, window.innerHeight);
+  player.onResize(window.innerWidth, window.innerHeight);
 });
 
-// Fixed-Timestep Loop
+// Build level & player
+const { staticColliders, walkableMeshes } = buildLevel(scene);
+const player = createPlayer(renderer);
+scene.add(player.group);
+
+// attach gun to selected hand before start
+player.attachGunTo(settings.weaponHand);
+
+// Combat system
+const combat = createCombat(scene, player, staticColliders);
+
+// Overlay & input
+initKeyboard();
+
+// Mount VR button into overlay and wire start
+const vrBtn = VRButton.createButton(renderer);
+vrBtn.id = 'internal-vrbutton';
+vrBtn.style.display = 'inline-block';
+vrBtn.style.position = 'static';
+vrBtn.style.padding = '6px 10px';
+vrBtn.style.borderRadius = '8px';
+vrBtn.style.border = '1px solid #444';
+vrBtn.style.background = '#121212';
+vrBtn.style.color = '#fff';
+const { hideOverlay, onStartDesktop } = initOverlay(renderer, vrBtn, () => {
+  // When settings changed in overlay, sync immediate things
+  player.attachGunTo(settings.weaponHand);
+});
+
+// Hide overlay automatically once XR starts
+renderer.xr.addEventListener('sessionstart', () => {
+  hideOverlay();
+  // Ensure the gun is on the configured hand in VR as well
+  player.attachGunTo(settings.weaponHand);
+});
+
+// keyboard Esc toggles overlay
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const ov = document.getElementById('overlay');
+    ov.classList.toggle('hidden');
+  }
+});
+
+// Fixed timestep loop
+const clock = new THREE.Clock();
 const FIXED_DT = 1/60;
 const MAX_STEPS = 5;
 let accumulator = 0;
@@ -69,11 +88,8 @@ function onRenderFrame() {
   let steps = 0;
   while (accumulator >= FIXED_DT && steps < MAX_STEPS) {
     const input = getInputState();
-    // Player Update (inkl. Snap-Turn delta aus input)
     player.update(FIXED_DT, input, staticColliders, walkableMeshes, settings.turnMode, settings.snapAngleDeg);
-    // Combat Update
     combat.update(FIXED_DT, input, settings);
-
     accumulator -= FIXED_DT;
     steps++;
   }
@@ -82,3 +98,9 @@ function onRenderFrame() {
 }
 
 renderer.setAnimationLoop(onRenderFrame);
+
+// Desktop Start button fallback (nicht nötig fürs Rendern, blendet nur Overlay aus)
+onStartDesktop(() => {
+  hideOverlay();
+  player.attachGunTo(settings.weaponHand);
+});

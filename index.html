@@ -1,29 +1,71 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>Halo-Style WebXR Shooter</title>
   <style>
     :root { color-scheme: dark; }
-    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#000;}
     canvas { display: block; }
-    /* Pre‑VR Overlay (von input.js befüllt) */
+    /* Start/Settings Overlay */
     #overlay {
       position: fixed; inset: 12px auto auto 12px; background: rgba(0,0,0,.6);
-      padding: 10px 12px; border-radius: 10px; color: #fff; z-index: 10; backdrop-filter: blur(4px);
-      max-width: 320px; font-size: 14px; line-height: 1.4;
+      padding: 12px 14px; border-radius: 12px; color: #fff; z-index: 10; backdrop-filter: blur(4px);
+      max-width: 360px; font-size: 14px; line-height: 1.4; border: 1px solid #2a2a2a;
     }
-    #overlay label { display: block; margin: 6px 0; }
-    #overlay .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    #overlay h1 { font-size: 16px; margin: 0 0 8px; }
+    #overlay .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0; }
+    #overlay label { display:block; margin:6px 0 2px; opacity:.9; }
     #overlay button, #overlay select {
-      border: 1px solid #444; background: #111; color: #fff; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+      border: 1px solid #444; background: #121212; color: #fff; padding: 6px 10px; border-radius: 8px; cursor: pointer;
     }
-    #overlay button:hover { background: #151515; }
+    #overlay button:hover { background:#171717; }
+    #overlay .muted { opacity:.7; }
+    #overlay .divider { height:1px; background:#2a2a2a; margin:10px 0; }
+    #overlay .actions { display:flex; gap:8px; flex-wrap:wrap; }
+    #overlay.hidden { display:none; }
+    /* bottom-left hint */
+    #hint { position: fixed; left: 12px; bottom: 10px; color:#aaa; font-size: 12px; z-index:9; }
   </style>
 </head>
 <body>
-  <div id="overlay"></div>
+  <div id="overlay">
+    <h1>Halo-Style XR Shooter</h1>
+    <div class="row">
+      <div style="flex:1">
+        <label>Drehung</label>
+        <select id="turnMode">
+          <option value="smooth">Smooth Turn</option>
+          <option value="snap">Snap Turn</option>
+        </select>
+      </div>
+      <div style="width:120px">
+        <label>Snap-Winkel</label>
+        <select id="snapAngle">
+          <option value="30">30°</option>
+          <option value="45">45°</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div style="flex:1">
+        <label>Waffenhand</label>
+        <select id="weaponHand">
+          <option value="left">Links</option>
+          <option value="right">Rechts</option>
+        </select>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="actions">
+      <button id="btnStart">Start (Desktop)</button>
+      <span class="muted">oder</span>
+      <span id="vrMount"></span>
+    </div>
+    <div class="row muted">Tipp: Drücke <b>Esc</b>, um dieses Panel ein-/auszublenden.</div>
+  </div>
+  <div id="hint">WASD/Leertaste, Linksklick feuern · Controller im VR</div>
   <script type="module" src="./main.js"></script>
 </body>
 </html>
