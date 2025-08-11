@@ -9,6 +9,16 @@ export const FOG = {
 };
 
 export function buildLevel(scene) {
+
+    // --- Licht-Setup (leicht & Quest-tauglich) ---
+  const hemi = new THREE.HemisphereLight(0x9ec9ff, 0x2f1f0f, 0.55); // Himmel / Boden, weiches Ambient
+  scene.add(hemi);
+
+  const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+  sun.position.set(8, 12, 6);
+  // sun.castShadow = false; // bewusst ohne Schatten (Budget). Wenn du magst, später low shadows einschalten.
+  scene.add(sun);
+
   const staticColliders = [];
   const walkableMeshes  = [];
 
