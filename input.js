@@ -10,34 +10,51 @@ export const settings = {
 const state = {
   moveAxis: { x: 0, y: 0 },
   turnAxis: { x: 0, y: 0 },
-  jumpPressed: false,
-  fireHeld: false,
-  // Nur für Snap: liefert bei Bedarf ±angle, danach 0 (edge)
-  turnSnapDeltaRad: 0,
+  jumpPressed: false,        // Edge: wird nach getInputState() zurückgesetzt
+  fireHeld: false,           // Hold
+  turnSnapDeltaRad: 0,       // Edge, nur bei snap
+  cycleWeaponPressed: false, // Edge: wird nach getInputState() zurückgesetzt
   _snapReady: true,
+  _wasFaceTopDown: false     // Latch für B/Y-Edge
 };
 
 // --- Keyboard (Desktop) ------------------------------------------------------
 export function initKeyboard() {
   const down = new Set();
+
   window.addEventListener('keydown', (e) => {
     down.add(e.code);
+
+    // Jump als Edge
     if (e.code === 'Space') state.jumpPressed = true;
+
+    // Fire-Hold (optional Desktop)
     if (e.code === 'MouseLeft' || e.code === 'KeyF') state.fireHeld = true;
+
+    // Waffenwechsel als Edge
+    if (e.code === 'KeyB' || e.code === 'KeyR') state.cycleWeaponPressed = true;
   });
+
   window.addEventListener('keyup', (e) => {
     down.delete(e.code);
     if (e.code === 'MouseLeft' || e.code === 'KeyF') state.fireHeld = false;
   });
 
   function updateFromKeyboard() {
-    const x = (down.has('KeyD') || down.has('ArrowRight') ? 1 : 0) - (down.has('KeyA') || down.has('ArrowLeft') ? 1 : 0);
-    const y = (down.has('KeyS') || down.has('ArrowDown') ? 1 : 0) - (down.has('KeyW') || down.has('ArrowUp') ? 1 : 0);
+    const x =
+      (down.has('KeyD') || down.has('ArrowRight') ? 1 : 0) -
+      (down.has('KeyA') || down.has('ArrowLeft') ? 1 : 0);
+    const y =
+      (down.has('KeyS') || down.has('ArrowDown') ? 1 : 0) -
+      (down.has('KeyW') || down.has('ArrowUp') ? 1 : 0);
     state.moveAxis.x = x;
     state.moveAxis.y = y;
+
+    // Q/E = smooth turn auf Desktop
     state.turnAxis.x = (down.has('KeyE') ? 1 : 0) - (down.has('KeyQ') ? 1 : 0);
   }
-  // simple desktop poll
+
+  // einfache Desktop-Poll-Schleife
   setInterval(updateFromKeyboard, 16);
 }
 
@@ -50,13 +67,13 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
   const btnStart = ov.querySelector('#btnStart');
   const vrMount = ov.querySelector('#vrMount');
 
-  // mount VR button into overlay
+  // VR-Button in das Overlay montieren
   if (vrButtonEl) {
     vrMount.innerHTML = '';
     vrMount.appendChild(vrButtonEl);
   }
 
-  // init UI state from settings
+  // UI initial aus Settings befüllen
   turnMode.value = settings.turnMode;
   snapAngle.value = String(settings.snapAngleDeg);
   weaponHand.value = settings.weaponHand;
@@ -71,18 +88,19 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
     snapAngle.disabled = settings.turnMode !== 'snap';
     changed();
   });
+
   snapAngle.addEventListener('change', () => {
     settings.snapAngleDeg = parseInt(snapAngle.value, 10);
     changed();
   });
+
   weaponHand.addEventListener('change', () => {
     settings.weaponHand = weaponHand.value;
     changed();
   });
 
   btnStart.addEventListener('click', () => {
-    // Desktop start: just hide overlay (loop runs already)
-    ov.classList.add('hidden');
+    ov.classList.add('hidden'); // Desktop-Start blendet nur Overlay aus
   });
 
   return {
@@ -94,7 +112,7 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
 
 // --- XR Input Reading --------------------------------------------------------
 export function readXRInput(session) {
-  // reset per-frame signals
+  // pro Frame zurücksetzen
   state.jumpPressed = false;
   state.turnSnapDeltaRad = 0;
 
@@ -109,7 +127,7 @@ export function readXRInput(session) {
     if (handed === 'right') right = gp;
   }
 
-  // Move from left thumbstick (axes[2]=x, axes[3]=y auf vielen Geräten; Fallback [0],[1])
+  // Move vom linken Thumbstick (fallback für Browser/Mapping-Varianten)
   if (left) {
     const ax = left.axes;
     const lx = ax[2] ?? ax[0] ?? 0;
@@ -118,13 +136,13 @@ export function readXRInput(session) {
     state.moveAxis.y = dead(ly);
   }
 
-  // Turn from right thumbstick
+  // Turn vom rechten Thumbstick
   if (right) {
     const ax = right.axes;
     const rx = ax[2] ?? ax[0] ?? 0;
     state.turnAxis.x = dead(rx);
 
-    // Snap edge-detect
+    // Snap Edge
     if (settings.turnMode === 'snap') {
       const th = 0.6;
       if (state._snapReady && Math.abs(rx) > th) {
@@ -137,22 +155,28 @@ export function readXRInput(session) {
     }
   }
 
-  // Jump: A / south button (meist Button 0/4)
-  // Jump: A / X (Face Button). Niemals den Trigger (0) verwenden!
+  // --- Buttons --------------------------------------------------------------
   const btnPressed = (gp, idx) => !!(gp && gp.buttons && gp.buttons[idx] && gp.buttons[idx].pressed);
 
-  // Heuristik: bevorzugt Index 3 (A/X), fallback 4 (B/Y) – je nach Mapping/Browser
-  const facePressed = (gp) => (btnPressed(gp, 3) || btnPressed(gp, 4));
+  // Face-Bottom (A / X) → Jump (bevorzugt rechter Controller (A), sonst linker (X))
+  const faceBottom = (gp) => (btnPressed(gp, 3)); // Index 3 gängig für A/X
+  if ((right && faceBottom(right)) || (left && faceBottom(left))) {
+    state.jumpPressed = true;
+  }
 
-  state.jumpPressed = false;
-  if (right && facePressed(right)) state.jumpPressed = true;
-  else if (left && facePressed(left)) state.jumpPressed = true;
+  // Face-Top (B / Y) → Cycle Weapon (Edge, beide Hände zulassen)
+  const faceTop = (gp) => (btnPressed(gp, 4)); // Index 4 gängig für B/Y
+  const faceTopDownNow = (right && faceTop(right)) || (left && faceTop(left));
+  if (faceTopDownNow && !state._wasFaceTopDown) {
+    state.cycleWeaponPressed = true;
+  }
+  state._wasFaceTopDown = faceTopDownNow;
 
-  // Fire: Trigger auf settings.weaponHand
+  // Fire: Trigger auf settings.weaponHand (Index 0)
   const handGp = (settings.weaponHand === 'left') ? left : right;
   if (handGp) {
-    const trigger = handGp.buttons && handGp.buttons[0] ? handGp.buttons[0] : null; // 0 ist häufig der Trigger
-    state.fireHeld = !!(trigger && (trigger.pressed || trigger.value > 0.5));
+    const trig = handGp.buttons && handGp.buttons[0];
+    state.fireHeld = !!(trig && (trig.pressed || trig.value > 0.5));
   } else {
     state.fireHeld = false;
   }
@@ -163,11 +187,17 @@ function dead(v, dz = 0.15) {
 }
 
 export function getInputState() {
-  return {
+  // Edge-Signale nach dem Auslesen zurücksetzen
+  const snapshot = {
     moveAxis: { ...state.moveAxis },
     turnAxis: { ...state.turnAxis },
     jumpPressed: state.jumpPressed,
     fireHeld: state.fireHeld,
     turnSnapDeltaRad: settings.turnMode === 'snap' ? state.turnSnapDeltaRad : 0,
+    cycleWeaponPressed: state.cycleWeaponPressed,
   };
+  state.jumpPressed = false;
+  state.cycleWeaponPressed = false;
+  state.turnSnapDeltaRad = 0; // nur relevant in diesem Frame
+  return snapshot;
 }

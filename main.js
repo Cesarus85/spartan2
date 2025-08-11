@@ -27,16 +27,16 @@ const { staticColliders, walkableMeshes } = buildLevel(scene);
 const player = createPlayer(renderer);
 scene.add(player.group);
 
-// attach gun to selected hand before start
+// Gun vor Start an aktuell gewählte Hand hängen
 player.attachGunTo(settings.weaponHand);
 
 // Combat system
 const combat = createCombat(scene, player, staticColliders);
 
-// Overlay & input
+// Keyboard & Overlay
 initKeyboard();
 
-// Mount VR button into overlay and wire start
+// VR-Button in Overlay mounten und Start-Callbacks verdrahten
 const vrBtn = VRButton.createButton(renderer);
 vrBtn.id = 'internal-vrbutton';
 vrBtn.style.display = 'inline-block';
@@ -46,19 +46,19 @@ vrBtn.style.borderRadius = '8px';
 vrBtn.style.border = '1px solid #444';
 vrBtn.style.background = '#121212';
 vrBtn.style.color = '#fff';
+
 const { hideOverlay, onStartDesktop } = initOverlay(renderer, vrBtn, () => {
-  // When settings changed in overlay, sync immediate things
+  // Wenn im Overlay die Hand gewechselt wird, sofort Gun umhängen
   player.attachGunTo(settings.weaponHand);
 });
 
-// Hide overlay automatically once XR starts
+// Overlay automatisch verstecken, sobald XR startet
 renderer.xr.addEventListener('sessionstart', () => {
   hideOverlay();
-  // Ensure the gun is on the configured hand in VR as well
   player.attachGunTo(settings.weaponHand);
 });
 
-// keyboard Esc toggles overlay
+// ESC toggelt Overlay
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const ov = document.getElementById('overlay');
@@ -68,7 +68,7 @@ window.addEventListener('keydown', (e) => {
 
 // Fixed timestep loop
 const clock = new THREE.Clock();
-const FIXED_DT = 1/60;
+const FIXED_DT = 1 / 60;
 const MAX_STEPS = 5;
 let accumulator = 0;
 
@@ -82,14 +82,29 @@ function onXRFrame() {
 function onRenderFrame() {
   const rawDt = clock.getDelta();
   const dt = Math.min(rawDt, 0.25);
+
   onXRFrame();
 
   accumulator += dt;
   let steps = 0;
   while (accumulator >= FIXED_DT && steps < MAX_STEPS) {
     const input = getInputState();
-    player.update(FIXED_DT, input, staticColliders, walkableMeshes, settings.turnMode, settings.snapAngleDeg);
+
+    // Waffenwechsel (Edge)
+    if (input.cycleWeaponPressed) {
+      combat.cycleWeapon();
+    }
+
+    player.update(
+      FIXED_DT,
+      input,
+      staticColliders,
+      walkableMeshes,
+      settings.turnMode,
+      settings.snapAngleDeg
+    );
     combat.update(FIXED_DT, input, settings);
+
     accumulator -= FIXED_DT;
     steps++;
   }
@@ -99,7 +114,7 @@ function onRenderFrame() {
 
 renderer.setAnimationLoop(onRenderFrame);
 
-// Desktop Start button fallback (nicht nötig fürs Rendern, blendet nur Overlay aus)
+// Desktop-Start blendet Overlay aus und synchronisiert Gun-Hand
 onStartDesktop(() => {
   hideOverlay();
   player.attachGunTo(settings.weaponHand);
