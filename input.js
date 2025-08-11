@@ -16,8 +16,11 @@ const state = {
   cycleWeaponPressed: false, // Edge (wird nach getInputState() zurückgesetzt)
 
   _snapReady: true,
-  _wasFaceTopDown: false,    // Latch (B/Y)
-  _wasFaceBottomDown: false, // Latch (A/X)
+  // Separate Latches für jeden Controller und Button
+  _leftXWasDown: false,      // X auf linkem Controller (Jump)
+  _leftYWasDown: false,      // Y auf linkem Controller (Weapon)
+  _rightAWasDown: false,     // A auf rechtem Controller (Jump)
+  _rightBWasDown: false,     // B auf rechtem Controller (Weapon)
 };
 
 // --- Keyboard (Desktop) ------------------------------------------------------
@@ -155,41 +158,53 @@ export function readXRInput(session) {
     }
   }
 
-  // --- Buttons (getauschte Rollen) ------------------------------------------
-  const btnPressed = (gp, idx) =>
-    !!(gp && gp.buttons && gp.buttons[idx] && gp.buttons[idx].pressed);
-
-  // Kandidaten robust für Quest/WebXR:
-  //  - A/X meist 4, B/Y meist 5. Fallback 3/4.
-  const faceDownNow = (gp, candidates) => {
-    if (!gp || !gp.buttons) return false;
-    for (const idx of candidates) {
-      if (gp.buttons[idx] && gp.buttons[idx].pressed) return true;
-    }
-    return false;
+  // --- Button-Mapping (korrigiert für Quest Touch Controller) --------------
+  // Quest Touch Button-Layout:
+  // Linker Controller: X=4, Y=5
+  // Rechter Controller: A=4, B=5
+  
+  // Hilfsfunktion für sicheren Button-Zugriff
+  const isButtonPressed = (gamepad, index) => {
+    return !!(gamepad && gamepad.buttons && gamepad.buttons[index] && gamepad.buttons[index].pressed);
   };
 
-  // Unterer Button (A/X) – jetzt: Waffenwechsel
-  const bottomCandidates = [4, 3];
-  // Oberer Button (B/Y) – jetzt: Springen
-  const topCandidates = [5, 4];
-
-  const bottomNow =
-    faceDownNow(right, bottomCandidates) || faceDownNow(left, bottomCandidates);
-  const topNow =
-    faceDownNow(right, topCandidates) || faceDownNow(left, topCandidates);
-
-  // Rising-Edge: Springen auf B/Y (oben)
-  if (topNow && !state._wasFaceTopDown) {
-    state.jumpPressed = true;
+  // Linker Controller: X (Index 4) = Jump, Y (Index 5) = Weapon
+  if (left) {
+    const leftXNow = isButtonPressed(left, 4);  // X-Button
+    const leftYNow = isButtonPressed(left, 5);  // Y-Button
+    
+    // Rising Edge Detection für X (Jump)
+    if (leftXNow && !state._leftXWasDown) {
+      state.jumpPressed = true;
+    }
+    
+    // Rising Edge Detection für Y (Weapon)
+    if (leftYNow && !state._leftYWasDown) {
+      state.cycleWeaponPressed = true;
+    }
+    
+    state._leftXWasDown = leftXNow;
+    state._leftYWasDown = leftYNow;
   }
-  // Rising-Edge: Waffenwechsel auf A/X (unten)
-  if (bottomNow && !state._wasFaceBottomDown) {
-    state.cycleWeaponPressed = true;
-  }
 
-  state._wasFaceTopDown = topNow;
-  state._wasFaceBottomDown = bottomNow;
+  // Rechter Controller: A (Index 4) = Jump, B (Index 5) = Weapon
+  if (right) {
+    const rightANow = isButtonPressed(right, 4);  // A-Button
+    const rightBNow = isButtonPressed(right, 5);  // B-Button
+    
+    // Rising Edge Detection für A (Jump)
+    if (rightANow && !state._rightAWasDown) {
+      state.jumpPressed = true;
+    }
+    
+    // Rising Edge Detection für B (Weapon)
+    if (rightBNow && !state._rightBWasDown) {
+      state.cycleWeaponPressed = true;
+    }
+    
+    state._rightAWasDown = rightANow;
+    state._rightBWasDown = rightBNow;
+  }
 
   // Fire: Trigger auf settings.weaponHand (Index 0)
   const handGp = (settings.weaponHand === 'left') ? left : right;
