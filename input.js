@@ -114,10 +114,8 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
 
 // --- XR Input Reading --------------------------------------------------------
 export function readXRInput(session) {
-  // pro Frame zurücksetzen
-  state.jumpPressed = false;
-  state.turnSnapDeltaRad = 0;
-  state.cycleWeaponPressed = false;
+  // NICHT hier zurücksetzen - das passiert erst in getInputState()
+  // Diese Funktion sammelt nur Input-Events
 
   const sources = session.inputSources || [];
   let left = null, right = null;
@@ -183,6 +181,7 @@ export function readXRInput(session) {
       state.cycleWeaponPressed = true;
     }
     
+    // Latches erst am Ende des Frames updaten
     state._leftXWasDown = leftXNow;
     state._leftYWasDown = leftYNow;
   }
@@ -202,6 +201,7 @@ export function readXRInput(session) {
       state.cycleWeaponPressed = true;
     }
     
+    // Latches erst am Ende des Frames updaten
     state._rightAWasDown = rightANow;
     state._rightBWasDown = rightBNow;
   }
@@ -229,9 +229,12 @@ export function getInputState() {
     turnSnapDeltaRad: settings.turnMode === 'snap' ? state.turnSnapDeltaRad : 0,
     cycleWeaponPressed: state.cycleWeaponPressed,     // Edge
   };
-  // Edge-Flags zurücksetzen
+  
+  // Edge-Flags erst NACH dem Snapshot zurücksetzen
+  // Das garantiert, dass alle Update-Zyklen die Events sehen
   state.jumpPressed = false;
   state.cycleWeaponPressed = false;
   state.turnSnapDeltaRad = 0;
+  
   return snapshot;
 }
