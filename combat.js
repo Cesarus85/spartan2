@@ -41,13 +41,15 @@ export function createCombat(scene, player, staticColliders) {
   }
 
   function update(dt, input, settings) {
+    // Fire
     fireCooldown = Math.max(0, fireCooldown - dt);
-
     if (input.fireHeld && fireCooldown === 0) {
       const w = weapons[currentWeapon];
       fireCooldown = 1 / w.fireRate;
 
-      const ctrl = (settings.weaponHand === 'left') ? player.controllerLeft : player.controllerRight;
+      // NEU: Controller über handedness-Mapping holen
+      const ctrl = player.getController(settings.weaponHand);
+
       const bullet = acquireBullet(w.radius, w.color);
       const origin = ctrl.getWorldPosition(new THREE.Vector3());
       const quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
@@ -63,14 +65,13 @@ export function createCombat(scene, player, staticColliders) {
     const staticObjs = staticColliders.map(e => e.obj);
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
-      const old = b.position.clone();
-      b.position.addScaledVector(b.velocity, dt);
+      b.position.add(b.velocity.clone().multiplyScalar(dt));
 
-      const ray = new THREE.Raycaster(old, b.velocity.clone().normalize());
-      const dist = b.velocity.length() * dt;
-      ray.far = dist;
-      const hits = ray.intersectObjects(staticObjs);
-      if (hits.length || b.position.length() > 150) {
+      // einfacher Kollisionscheck mit Szenengeometrie
+      const ray = new THREE.Raycaster(b.position.clone().sub(b.velocity.clone().multiplyScalar(dt)), b.velocity.clone().normalize());
+      ray.far = b.velocity.length() * dt + 0.05;
+      const hits = ray.intersectObjects(staticObjs, true);
+      if (hits.length) {
         scene.remove(b);
         releaseBullet(b);
         bullets.splice(i, 1);
@@ -78,9 +79,5 @@ export function createCombat(scene, player, staticColliders) {
     }
   }
 
-  return {
-    update,
-    cycleWeapon,
-    get currentWeapon() { return currentWeapon; }
-  };
+  return { update, cycleWeapon };
 }

@@ -17,12 +17,38 @@ export function createPlayer(renderer) {
   body.position.y = -1.6;
   group.add(body);
 
-  // Controllers
-  const controllerLeft  = renderer.xr.getController(0);
-  const controllerRight = renderer.xr.getController(1);
-  const gripLeft  = renderer.xr.getControllerGrip(0);
-  const gripRight = renderer.xr.getControllerGrip(1);
-  group.add(controllerLeft, controllerRight, gripLeft, gripRight);
+  // Controllers (map by handedness)
+  // Raw controller objects by index:
+  const ctrl0 = renderer.xr.getController(0);
+  const ctrl1 = renderer.xr.getController(1);
+  const grip0 = renderer.xr.getControllerGrip(0);
+  const grip1 = renderer.xr.getControllerGrip(1);
+  // Mapped references that always point to the *handed* controller:
+  let controllerLeft  = ctrl0;
+  let controllerRight = ctrl1;
+  let gripLeft  = grip0;
+  let gripRight = grip1;
+
+  // Handedness mapping on connect/disconnect
+  function bindHandedness(ctrl, grip) {
+    ctrl.addEventListener('connected', (e) => {
+      const handed = e?.data?.handedness || e?.target?.inputSource?.handedness || 'unknown';
+      if (handed === 'left')  controllerLeft  = ctrl;
+      if (handed === 'right') controllerRight = ctrl;
+    });
+    grip.addEventListener('connected', (e) => {
+      const handed = e?.data?.handedness || e?.target?.inputSource?.handedness || 'unknown';
+      if (handed === 'left')  gripLeft  = grip;
+      if (handed === 'right') gripRight = grip;
+    });
+    ctrl.addEventListener('disconnected', () => {
+      // no-op; three.js entfernt den Node, Mapping bleibt bis neuer Connect
+    });
+  }
+  bindHandedness(ctrl0, grip0);
+  bindHandedness(ctrl1, grip1);
+
+  group.add(ctrl0, ctrl1, grip0, grip1);
 
   // Gun
   const gun = new THREE.Mesh(
@@ -57,13 +83,30 @@ export function createPlayer(renderer) {
 
   let playerYRotation = 0;
 
-  function landIfGroundClose(pos, walkables) {
-    downRay.set(new THREE.Vector3(pos.x, pos.y + 0.2, pos.z), downDir);
+  function getForward(out = new THREE.Vector3()) {
+    out.set(0, 0, -1).applyAxisAngle(new THREE.Vector3(0,1,0), playerYRotation);
+    return out.normalize();
+  }
+  function getRight(out = new THREE.Vector3()) {
+    out.set(1, 0, 0).applyAxisAngle(new THREE.Vector3(0,1,0), playerYRotation);
+    return out.normalize();
+  }
+
+  function sampleGroundHeight(pos, walkables) {
+    downRay.set(new THREE.Vector3(pos.x, pos.y + 0.5, pos.z), downDir);
+    downRay.far = 3.0;
     const hits = downRay.intersectObjects(walkables, true);
-    if (!hits.length) return false;
-    const hit = hits[0];
-    if (vy <= 0 && hit.distance <= (0.2 + PROBE)) {
-      pos.y = pos.y + 0.2 - hit.distance;
+    if (!hits.length) return null;
+    return hits[0].point.y;
+  }
+
+  function tryStickToGround(pos, dt, walkables) {
+    const y = sampleGroundHeight(pos, walkables);
+    if (y == null) return false;
+    // "Schweben" über Boden ist 0.2 (Capsule bottom)
+    const ground = y + 0.2;
+    if (vy <= 0 && pos.y - ground <= PROBE) {
+      pos.y = ground;
       vy = 0; grounded = true; coyoteTimer = 0;
       return true;
     }
@@ -88,31 +131,28 @@ export function createPlayer(renderer) {
     if (turnMode === 'smooth') {
       playerYRotation -= input.turnAxis.x * 0.05;
     } else {
-      // Snap wird per Cooldown in input nicht gesteuert -> wir machen's hier:
-      // Der Cooldown steckt sinnvollerweise in main; hier nur Yaw-Anpassung auf Signal:
-      // Wir erwarten: input.turnSnapDeltaRad ∈ {0, ±angle} (siehe main)
       if (input.turnSnapDeltaRad) {
-        playerYRotation += input.turnSnapDeltaRad;
+        playerYRotation -= input.turnSnapDeltaRad;
       }
     }
-    group.rotation.y = playerYRotation;
 
-    // Move
-    if (Math.abs(input.moveAxis.x) > 0 || Math.abs(input.moveAxis.y) > 0) {
-      direction.set(input.moveAxis.x, 0, input.moveAxis.y).normalize();
-      direction.applyMatrix4(new THREE.Matrix4().makeRotationY(playerYRotation));
-      velocity.x = direction.x * moveSpeed;
-      velocity.z = direction.z * moveSpeed;
-    } else {
-      velocity.set(0, 0, 0);
-    }
+    // Movement
+    direction.set(0,0,0);
+    if (input.moveAxis.y !== 0) direction.add(getForward().multiplyScalar(-input.moveAxis.y));
+    if (input.moveAxis.x !== 0) direction.add(getRight().multiplyScalar( input.moveAxis.x));
+    if (direction.lengthSq() > 0) direction.normalize();
+
+    velocity.copy(direction).multiplyScalar(moveSpeed);
 
     // Jump/Gravity
-    if (!grounded) coyoteTimer = Math.max(0, coyoteTimer - dt);
+    if (grounded) coyoteTimer = Math.min(COYOTE_MAX, coyoteTimer + dt);
     if (input.jumpPressed && (grounded || coyoteTimer > 0)) {
-      vy = JUMP; grounded = false; coyoteTimer = 0;
+      vy = JUMP;
+      grounded = false;
+      coyoteTimer = 0;
+    } else {
+      vy += GRAV * dt;
     }
-    vy += GRAV * dt;
 
     const newPos = group.position.clone();
     newPos.x += velocity.x * dt;
@@ -124,8 +164,7 @@ export function createPlayer(renderer) {
     let finalPos = newPos.clone();
 
     // Seiten-Kollisionen
-    for (const { box, obj } of colliders) {
-      // simplify: skip floor/roof checks hier? (ok – Level ist „leicht“)
+    for (const { box } of colliders) {
       const pBox = {
         minX: finalPos.x - playerRadius,
         maxX: finalPos.x + playerRadius,
@@ -149,12 +188,16 @@ export function createPlayer(renderer) {
       }
     }
 
-    // Decke/Boden
-    blockCeiling(finalPos, dt, playerHeight, colliders);
-    const landed = landIfGroundClose(finalPos, walkables);
-    if (!landed && grounded && vy < 0) { grounded = false; coyoteTimer = COYOTE_MAX; }
+    // Boden andocken
+    const stuck = tryStickToGround(finalPos, dt, walkables);
+    if (!stuck) blockCeiling(finalPos, dt, playerHeight, colliders);
 
     group.position.copy(finalPos);
+    group.rotation.set(0, playerYRotation, 0);
+
+    // Kamera leicht versetzen (Kopf)
+    camera.position.set(0, 1.6, 0);
+    camera.rotation.set(0, 0, 0);
   }
 
   function onResize(w, h) {
@@ -166,6 +209,7 @@ export function createPlayer(renderer) {
     group, camera,
     controllerLeft, controllerRight, gripLeft, gripRight,
     gun, attachGunTo,
+    getController: (hand) => (hand === 'left' ? controllerLeft : controllerRight),
     update, onResize
   };
 }
