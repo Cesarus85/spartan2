@@ -1,10 +1,6 @@
 // combat.js
 import { THREE } from './deps.js';
 
-/**
- * Combat system with simple bullet pooling. Bullets now spawn
- * from the player's gun 'muzzle' transform (see player.getMuzzleWorld()).
- */
 export function createCombat(scene, player, staticColliders) {
   const weapons = [
     { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10 },
@@ -20,72 +16,66 @@ export function createCombat(scene, player, staticColliders) {
     let m = bulletPool.pop();
     if (!m) {
       m = new THREE.Mesh(
-        new THREE.SphereGeometry(1, 10, 10),
+        new THREE.SphereGeometry(radius, 8, 8),
         new THREE.MeshBasicMaterial({ color })
       );
-      m.userData.vel = new THREE.Vector3();
-      m.geometry.computeBoundingSphere();
+    } else {
+      if (!m.geometry.parameters || m.geometry.parameters.radius !== radius) {
+        m.geometry.dispose();
+        m.geometry = new THREE.SphereGeometry(radius, 8, 8);
+      }
+      m.material.color.setHex(color);
     }
-    m.scale.setScalar(radius);
-    m.material.color.setHex(color);
-    m.userData.radius = radius;
+    m.visible = true;
     return m;
   }
-
   function releaseBullet(m) {
+    m.visible = false;
+    m.position.set(0, -999, 0);
+    if (m.velocity) m.velocity.set(0, 0, 0);
     bulletPool.push(m);
   }
 
-  function cycleWeapon(dir = 1) {
-    currentWeapon = (currentWeapon + dir + weapons.length) % weapons.length;
+  function cycleWeapon() {
+    currentWeapon = (currentWeapon + 1) % weapons.length;
   }
 
-  const ray = new THREE.Raycaster();
-  const tmp = new THREE.Vector3();
-  const q = new THREE.Quaternion();
+  function update(dt, input, settings) {
+    fireCooldown = Math.max(0, fireCooldown - dt);
 
-  function tryFire(dt, input) {
-    const w = weapons[currentWeapon];
-    fireCooldown -= dt;
-    if (!input.fireHeld || fireCooldown > 0) return;
+    if (input.fireHeld && fireCooldown === 0) {
+      const w = weapons[currentWeapon];
+      fireCooldown = 1 / w.fireRate;
 
-    // get muzzle transform
-    const { pos, quat } = player.getMuzzleWorld(tmp, q);
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
+      const ctrl = (settings.weaponHand === 'left') ? player.controllerLeft : player.controllerRight;
+      const bullet = acquireBullet(w.radius, w.color);
+      const origin = ctrl.getWorldPosition(new THREE.Vector3());
+      const quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
+      bullet.position.copy(origin);
+      bullet.quaternion.copy(quat);
 
-    const b = acquireBullet(w.radius, w.color);
-    b.position.copy(pos);
-    b.userData.vel.copy(forward).multiplyScalar(w.speed);
-    scene.add(b);
-    bullets.push(b);
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
+      bullet.velocity = dir.multiplyScalar(w.speed);
+      scene.add(bullet);
+      bullets.push(bullet);
+    }
 
-    fireCooldown = 1 / w.fireRate;
-  }
-
-  // naive bullet vs static colliders check; delete on hit or after distance
-  function moveAndCollideBullets(dt) {
+    const staticObjs = staticColliders.map(e => e.obj);
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
-      b.position.addScaledVector(b.userData.vel, dt);
+      const old = b.position.clone();
+      b.position.addScaledVector(b.velocity, dt);
 
-      // simple point-in-box hit check (quick & cheap)
-      let hit = false;
-      for (let j = 0; j < staticColliders.length && !hit; j++) {
-        const entry = staticColliders[j]; const box = entry && entry.box ? entry.box : null;
-        if (!box) continue;
-        if (box.containsPoint(b.position)) hit = true;
-      }
-      if (hit || b.position.length() > 150) {
+      const ray = new THREE.Raycaster(old, b.velocity.clone().normalize());
+      const dist = b.velocity.length() * dt;
+      ray.far = dist;
+      const hits = ray.intersectObjects(staticObjs);
+      if (hits.length || b.position.length() > 150) {
         scene.remove(b);
         releaseBullet(b);
         bullets.splice(i, 1);
       }
     }
-  }
-
-  function update(dt, input /*, settings*/) {
-    tryFire(dt, input);
-    moveAndCollideBullets(dt);
   }
 
   return {
