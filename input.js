@@ -10,12 +10,14 @@ export const settings = {
 const state = {
   moveAxis: { x: 0, y: 0 },
   turnAxis: { x: 0, y: 0 },
-  jumpPressed: false,        // Edge: wird nach getInputState() zurückgesetzt
+  jumpPressed: false,        // Edge (wird nach getInputState() zurückgesetzt)
   fireHeld: false,           // Hold
-  turnSnapDeltaRad: 0,       // Edge, nur bei snap
-  cycleWeaponPressed: false, // Edge: wird nach getInputState() zurückgesetzt
+  turnSnapDeltaRad: 0,       // Edge (nur bei snap)
+  cycleWeaponPressed: false, // Edge (wird nach getInputState() zurückgesetzt)
+
   _snapReady: true,
-  _wasFaceTopDown: false     // Latch für B/Y-Edge
+  _wasFaceTopDown: false,    // Latch (B/Y)
+  _wasFaceBottomDown: false, // Latch (A/X)
 };
 
 // --- Keyboard (Desktop) ------------------------------------------------------
@@ -54,7 +56,6 @@ export function initKeyboard() {
     state.turnAxis.x = (down.has('KeyE') ? 1 : 0) - (down.has('KeyQ') ? 1 : 0);
   }
 
-  // einfache Desktop-Poll-Schleife
   setInterval(updateFromKeyboard, 16);
 }
 
@@ -67,13 +68,11 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
   const btnStart = ov.querySelector('#btnStart');
   const vrMount = ov.querySelector('#vrMount');
 
-  // VR-Button in das Overlay montieren
   if (vrButtonEl) {
     vrMount.innerHTML = '';
     vrMount.appendChild(vrButtonEl);
   }
 
-  // UI initial aus Settings befüllen
   turnMode.value = settings.turnMode;
   snapAngle.value = String(settings.snapAngleDeg);
   weaponHand.value = settings.weaponHand;
@@ -100,7 +99,7 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
   });
 
   btnStart.addEventListener('click', () => {
-    ov.classList.add('hidden'); // Desktop-Start blendet nur Overlay aus
+    ov.classList.add('hidden'); // Desktop-Start: Overlay ausblenden
   });
 
   return {
@@ -115,6 +114,7 @@ export function readXRInput(session) {
   // pro Frame zurücksetzen
   state.jumpPressed = false;
   state.turnSnapDeltaRad = 0;
+  state.cycleWeaponPressed = false;
 
   const sources = session.inputSources || [];
   let left = null, right = null;
@@ -127,7 +127,7 @@ export function readXRInput(session) {
     if (handed === 'right') right = gp;
   }
 
-  // Move vom linken Thumbstick (fallback für Browser/Mapping-Varianten)
+  // Move vom linken Thumbstick (Fallbacks für verschiedene Browser/Profile)
   if (left) {
     const ax = left.axes;
     const lx = ax[2] ?? ax[0] ?? 0;
@@ -155,22 +155,41 @@ export function readXRInput(session) {
     }
   }
 
-  // --- Buttons --------------------------------------------------------------
-  const btnPressed = (gp, idx) => !!(gp && gp.buttons && gp.buttons[idx] && gp.buttons[idx].pressed);
+  // --- Buttons (getauschte Rollen) ------------------------------------------
+  const btnPressed = (gp, idx) =>
+    !!(gp && gp.buttons && gp.buttons[idx] && gp.buttons[idx].pressed);
 
-  // Face-Bottom (A / X) → Jump (bevorzugt rechter Controller (A), sonst linker (X))
-  const faceBottom = (gp) => (btnPressed(gp, 3)); // Index 3 gängig für A/X
-  if ((right && faceBottom(right)) || (left && faceBottom(left))) {
+  // Kandidaten robust für Quest/WebXR:
+  //  - A/X meist 4, B/Y meist 5. Fallback 3/4.
+  const faceDownNow = (gp, candidates) => {
+    if (!gp || !gp.buttons) return false;
+    for (const idx of candidates) {
+      if (gp.buttons[idx] && gp.buttons[idx].pressed) return true;
+    }
+    return false;
+  };
+
+  // Unterer Button (A/X) – jetzt: Waffenwechsel
+  const bottomCandidates = [4, 3];
+  // Oberer Button (B/Y) – jetzt: Springen
+  const topCandidates = [5, 4];
+
+  const bottomNow =
+    faceDownNow(right, bottomCandidates) || faceDownNow(left, bottomCandidates);
+  const topNow =
+    faceDownNow(right, topCandidates) || faceDownNow(left, topCandidates);
+
+  // Rising-Edge: Springen auf B/Y (oben)
+  if (topNow && !state._wasFaceTopDown) {
     state.jumpPressed = true;
   }
-
-  // Face-Top (B / Y) → Cycle Weapon (Edge, beide Hände zulassen)
-  const faceTop = (gp) => (btnPressed(gp, 4)); // Index 4 gängig für B/Y
-  const faceTopDownNow = (right && faceTop(right)) || (left && faceTop(left));
-  if (faceTopDownNow && !state._wasFaceTopDown) {
+  // Rising-Edge: Waffenwechsel auf A/X (unten)
+  if (bottomNow && !state._wasFaceBottomDown) {
     state.cycleWeaponPressed = true;
   }
-  state._wasFaceTopDown = faceTopDownNow;
+
+  state._wasFaceTopDown = topNow;
+  state._wasFaceBottomDown = bottomNow;
 
   // Fire: Trigger auf settings.weaponHand (Index 0)
   const handGp = (settings.weaponHand === 'left') ? left : right;
@@ -187,17 +206,17 @@ function dead(v, dz = 0.15) {
 }
 
 export function getInputState() {
-  // Edge-Signale nach dem Auslesen zurücksetzen
   const snapshot = {
     moveAxis: { ...state.moveAxis },
     turnAxis: { ...state.turnAxis },
-    jumpPressed: state.jumpPressed,
-    fireHeld: state.fireHeld,
+    jumpPressed: state.jumpPressed,                   // Edge
+    fireHeld: state.fireHeld,                         // Hold
     turnSnapDeltaRad: settings.turnMode === 'snap' ? state.turnSnapDeltaRad : 0,
-    cycleWeaponPressed: state.cycleWeaponPressed,
+    cycleWeaponPressed: state.cycleWeaponPressed,     // Edge
   };
+  // Edge-Flags zurücksetzen
   state.jumpPressed = false;
   state.cycleWeaponPressed = false;
-  state.turnSnapDeltaRad = 0; // nur relevant in diesem Frame
+  state.turnSnapDeltaRad = 0;
   return snapshot;
 }
