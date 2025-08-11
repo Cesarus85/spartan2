@@ -138,10 +138,15 @@ export function readXRInput(session) {
   }
 
   // Jump: A / south button (meist Button 0/4)
-  const btnPressed = (gp, idx) => gp && gp.buttons && gp.buttons[idx] && gp.buttons[idx].pressed;
-  if ((right && (btnPressed(right, 0) || btnPressed(right, 4))) || (left && btnPressed(left, 0))) {
-    state.jumpPressed = true;
-  }
+  // Jump: A / X (Face Button). Niemals den Trigger (0) verwenden!
+  const btnPressed = (gp, idx) => !!(gp && gp.buttons && gp.buttons[idx] && gp.buttons[idx].pressed);
+
+  // Heuristik: bevorzugt Index 3 (A/X), fallback 4 (B/Y) – je nach Mapping/Browser
+  const facePressed = (gp) => (btnPressed(gp, 3) || btnPressed(gp, 4));
+
+  state.jumpPressed = false;
+  if (right && facePressed(right)) state.jumpPressed = true;
+  else if (left && facePressed(left)) state.jumpPressed = true;
 
   // Fire: Trigger auf settings.weaponHand
   const handGp = (settings.weaponHand === 'left') ? left : right;
