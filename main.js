@@ -122,18 +122,14 @@ const FIXED_DT = 1 / 60;
 const MAX_STEPS = 5;
 let accumulator = 0;
 
-function onXRFrame() {
-  if (renderer.xr.isPresenting) {
-    const session = renderer.xr.getSession();
-    readXRInput(session);
-  }
-}
-
 function onRenderFrame() {
   const rawDt = clock.getDelta();
   const dt = Math.min(rawDt, 0.25);
 
-  onXRFrame();
+  if (renderer.xr.isPresenting) {
+    const session = renderer.xr.getSession();
+    readXRInput(session);
+  }
   readKeyboard();
 
   accumulator += dt;

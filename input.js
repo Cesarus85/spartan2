@@ -159,6 +159,11 @@ export function readXRInput(session) {
   let left = null, right = null;
   let leftProfiles = [], rightProfiles = [];
 
+  // Achsen auf Null zurücksetzen, damit bei fehlenden Controllern keine
+  // Werte aus dem vorherigen Frame übernommen werden
+  state.moveAxis.x = 0; state.moveAxis.y = 0;
+  state.turnAxis.x = 0; state.turnAxis.y = 0;
+
   for (const src of sources) {
     const gp = src.gamepad;
     if (!gp) continue;
@@ -187,10 +192,11 @@ export function readXRInput(session) {
   if (right) {
     const ax = right.axes;
     const rx = ax[2] ?? ax[0] ?? 0;
-    state.turnAxis.x = dead(rx);
 
-    // Snap Edge
-    if (settings.turnMode === 'snap') {
+    if (settings.turnMode === 'smooth') {
+      state.turnAxis.x = dead(rx);
+    } else {
+      // Snap Edge
       const th = 0.6;
       if (state._snapReady && Math.abs(rx) > th) {
         const sign = rx > 0 ? 1 : -1;
