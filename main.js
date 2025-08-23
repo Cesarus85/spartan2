@@ -1,6 +1,6 @@
 // main.js
 import { THREE, VRButton } from './deps.js';
-import { FOG, buildLevel } from './level.js';
+import { FOG, buildLevel, intersectsForbidden } from './level.js';
 import { createPlayer } from './player.js';
 import { createCombat } from './combat.js';
 import { createHUD } from './hud.js';
@@ -40,12 +40,40 @@ const combat = createCombat(scene, player, staticColliders, enemies);
 const hud = createHUD(player, combat);
 
 function spawnEnemy() {
-  const pos = new THREE.Vector3(
-    (Math.random() - 0.5) * 10,
-    0,
-    (Math.random() - 0.5) * 10
-  );
-  enemies.push(new Enemy(scene, player, pos));
+  const MAX_ATTEMPTS = 20;
+  const MIN_PLAYER_DIST = 4;
+  const RADIUS = 0.5;
+
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    const pos = new THREE.Vector3(
+      (Math.random() - 0.5) * 10,
+      0,
+      (Math.random() - 0.5) * 10
+    );
+
+    // Abstand zum Spieler prüfen
+    if (pos.distanceTo(player.group.position) < MIN_PLAYER_DIST) continue;
+
+    // Box um die Position für Kollisionsprüfungen
+    const min = new THREE.Vector3(pos.x - RADIUS, 0, pos.z - RADIUS);
+    const max = new THREE.Vector3(pos.x + RADIUS, RADIUS * 2, pos.z + RADIUS);
+    const box = new THREE.Box3(min, max);
+
+    if (intersectsForbidden(box)) continue;
+
+    // Optionale Prüfung gegen statische Hindernisse
+    let blocked = false;
+    for (const c of staticColliders) {
+      if (c.box.intersectsBox(box)) {
+        blocked = true;
+        break;
+      }
+    }
+    if (blocked) continue;
+
+    enemies.push(new Enemy(scene, player, pos));
+    return;
+  }
 }
 
 let enemySpawnTimer = 0;
