@@ -73,6 +73,11 @@ const { hideOverlay, onStartDesktop } = initOverlay(renderer, vrBtn, () => {
 renderer.xr.addEventListener('sessionstart', () => {
   hideOverlay();
   player.attachGunTo(settings.weaponHand);
+  document.body.classList.add('vr');
+});
+
+renderer.xr.addEventListener('sessionend', () => {
+  document.body.classList.remove('vr');
 });
 
 // ESC toggelt Overlay
