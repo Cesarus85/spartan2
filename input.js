@@ -25,9 +25,9 @@ const state = {
 };
 
 // --- Keyboard (Desktop) ------------------------------------------------------
-export function initKeyboard() {
-  const down = new Set();
+const down = new Set();
 
+export function initKeyboard() {
   window.addEventListener('keydown', (e) => {
     down.add(e.code);
 
@@ -48,22 +48,20 @@ export function initKeyboard() {
     down.delete(e.code);
     if (e.code === 'MouseLeft' || e.code === 'KeyF') state.fireHeld = false;
   });
+}
 
-  function updateFromKeyboard() {
-    const x =
-      (down.has('KeyD') || down.has('ArrowRight') ? 1 : 0) -
-      (down.has('KeyA') || down.has('ArrowLeft') ? 1 : 0);
-    const y =
-      (down.has('KeyS') || down.has('ArrowDown') ? 1 : 0) -
-      (down.has('KeyW') || down.has('ArrowUp') ? 1 : 0);
-    state.moveAxis.x = x;
-    state.moveAxis.y = y;
+export function readKeyboard() {
+  const x =
+    (down.has('KeyD') || down.has('ArrowRight') ? 1 : 0) -
+    (down.has('KeyA') || down.has('ArrowLeft') ? 1 : 0);
+  const y =
+    (down.has('KeyS') || down.has('ArrowDown') ? 1 : 0) -
+    (down.has('KeyW') || down.has('ArrowUp') ? 1 : 0);
+  state.moveAxis.x = x;
+  state.moveAxis.y = y;
 
-    // Q/E = smooth turn auf Desktop
-    state.turnAxis.x = (down.has('KeyE') ? 1 : 0) - (down.has('KeyQ') ? 1 : 0);
-  }
-
-  setInterval(updateFromKeyboard, 16);
+  // Q/E = smooth turn auf Desktop
+  state.turnAxis.x = (down.has('KeyE') ? 1 : 0) - (down.has('KeyQ') ? 1 : 0);
 }
 
 // --- Overlay (Start & Settings) ---------------------------------------------
