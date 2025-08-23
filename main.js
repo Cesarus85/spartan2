@@ -3,6 +3,7 @@ import { THREE, VRButton } from './deps.js';
 import { FOG, buildLevel } from './level.js';
 import { createPlayer } from './player.js';
 import { createCombat } from './combat.js';
+import { createHUD } from './hud.js';
 import { Enemy } from './enemy.js';
 import { initKeyboard, initOverlay, readXRInput, getInputState, settings } from './input.js';
 
@@ -36,6 +37,7 @@ const enemies = [];
 
 // Combat system
 const combat = createCombat(scene, player, staticColliders, enemies);
+const hud = createHUD(player, combat);
 
 function spawnEnemy() {
   const pos = new THREE.Vector3(
@@ -109,6 +111,9 @@ function onRenderFrame() {
     if (input.cycleWeaponPressed) {
       combat.cycleWeapon();
     }
+    if (input.reloadPressed) {
+      combat.reload();
+    }
 
     player.update(
       FIXED_DT,
@@ -138,6 +143,7 @@ function onRenderFrame() {
     steps++;
   }
 
+  hud.update();
   renderer.render(scene, player.camera);
 }
 
