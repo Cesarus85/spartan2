@@ -115,6 +115,20 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
 }
 
 // --- XR Input Reading --------------------------------------------------------
+function getButtonIndices(gamepad, handedness) {
+  const len = gamepad?.buttons?.length ?? 0;
+  const mapping = gamepad?.mapping;
+  if (len === 0) {
+    return { primary: null, secondary: null };
+  }
+  if (mapping === 'xr-standard' || len > 4) {
+    return { primary: 4, secondary: 5 };
+  }
+  return handedness === 'left'
+    ? { primary: 2, secondary: 3 }
+    : { primary: 0, secondary: 1 };
+}
+
 export function readXRInput(session) {
   // NICHT hier zurücksetzen - das passiert erst in getInputState()
   // Diese Funktion sammelt nur Input-Events
@@ -129,6 +143,8 @@ export function readXRInput(session) {
     if (handed === 'left') left = gp;
     if (handed === 'right') right = gp;
   }
+
+  console.log(left?.buttons, right?.buttons);
 
   // Move vom linken Thumbstick (Fallbacks für verschiedene Browser/Profile)
   if (left) {
@@ -158,51 +174,49 @@ export function readXRInput(session) {
     }
   }
 
-  // --- Button-Mapping (korrigiert für Quest Touch Controller) --------------
-  // Quest Touch Button-Layout:
-  // Linker Controller: X=4, Y=5
-  // Rechter Controller: A=4, B=5
-  
   // Hilfsfunktion für sicheren Button-Zugriff
   const isButtonPressed = (gamepad, index) => {
     return !!(gamepad && gamepad.buttons && gamepad.buttons[index] && gamepad.buttons[index].pressed);
   };
 
-  // Linker Controller: X (Index 4) = Jump, Y (Index 5) = Reload
-  if (left) {
-    const leftXNow = isButtonPressed(left, 4);  // X-Button
-    const leftYNow = isButtonPressed(left, 5);  // Y-Button
-    
+  const leftIdx = getButtonIndices(left, 'left');
+  const rightIdx = getButtonIndices(right, 'right');
+
+  // Linker Controller: X = Jump, Y = Reload
+  if (left && leftIdx.primary !== null) {
+    const leftXNow = isButtonPressed(left, leftIdx.primary);
+    const leftYNow = isButtonPressed(left, leftIdx.secondary);
+
     // Rising Edge Detection für X (Jump)
     if (leftXNow && !state._leftXWasDown) {
       state.jumpPressed = true;
     }
-    
+
     // Rising Edge Detection für Y (Reload)
     if (leftYNow && !state._leftYWasDown) {
       state.reloadPressed = true;
     }
-    
+
     // Latches erst am Ende des Frames updaten
     state._leftXWasDown = leftXNow;
     state._leftYWasDown = leftYNow;
   }
 
-  // Rechter Controller: A (Index 4) = Jump, B (Index 5) = Reload
-  if (right) {
-    const rightANow = isButtonPressed(right, 4);  // A-Button
-    const rightBNow = isButtonPressed(right, 5);  // B-Button
-    
+  // Rechter Controller: A = Jump, B = Reload
+  if (right && rightIdx.primary !== null) {
+    const rightANow = isButtonPressed(right, rightIdx.primary);
+    const rightBNow = isButtonPressed(right, rightIdx.secondary);
+
     // Rising Edge Detection für A (Jump)
     if (rightANow && !state._rightAWasDown) {
       state.jumpPressed = true;
     }
-    
+
     // Rising Edge Detection für B (Reload)
     if (rightBNow && !state._rightBWasDown) {
       state.reloadPressed = true;
     }
-    
+
     // Latches erst am Ende des Frames updaten
     state._rightAWasDown = rightANow;
     state._rightBWasDown = rightBNow;
