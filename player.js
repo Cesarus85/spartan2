@@ -59,6 +59,7 @@ export function createPlayer(renderer) {
     const model = gltf.scene;
     model.scale.setScalar(0.25);
     model.rotation.y = Math.PI / 2;
+    model.rotation.z = Math.PI;
     gun.add(model);
   });
 
