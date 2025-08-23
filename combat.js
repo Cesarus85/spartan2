@@ -50,6 +50,8 @@ export function createCombat(scene, player, staticColliders, enemies) {
   // Bullet-Pool
   const bulletPool = [];
   const bullets = [];
+  const BULLET_LIFETIME = 5; // seconds
+  const MAX_BULLETS = 100;
 
   function acquireBullet(radius, color) {
     let m = bulletPool.pop();
@@ -115,50 +117,55 @@ export function createCombat(scene, player, staticColliders, enemies) {
     if (input.fireHeld && fireCooldown === 0) {
       const w = weapons[currentWeapon];
       if (w.ammo > 0) {
-        w.ammo--;
+        if (bullets.length < MAX_BULLETS) {
+          w.ammo--;
 
-        // Aktiver Controller gemäß Settings (handedness)
-        const ctrl = player.getController(settings.weaponHand);
+          // Aktiver Controller gemäß Settings (handedness)
+          const ctrl = player.getController(settings.weaponHand);
 
-        // --- Mündung im Waffenspace bestimmen ---------------------------------
-        // Wichtig: Wir nutzen *player.gun* (am Controller angeheftet)
-        const gun = player.gun;
+          // --- Mündung im Waffenspace bestimmen ---------------------------------
+          // Wichtig: Wir nutzen *player.gun* (am Controller angeheftet)
+          const gun = player.gun;
 
-        // Falls die Gun temporär noch nicht an der gewünschten Hand hängt,
-        // fallback auf Controller-Mitte (sollte praktisch nicht mehr vorkommen)
-        let origin, quat;
-        if (gun && gun.parent) {
-          // Weltposition der Mündung
-          origin = gun.localToWorld(MUZZLE_LOCAL.clone());
+          // Falls die Gun temporär noch nicht an der gewünschten Hand hängt,
+          // fallback auf Controller-Mitte (sollte praktisch nicht mehr vorkommen)
+          let origin, quat;
+          if (gun && gun.parent) {
+            // Weltposition der Mündung
+            origin = gun.localToWorld(MUZZLE_LOCAL.clone());
 
-          // Weltrotation der Gun → Flugrichtung vorne (-Z)
-          quat = gun.getWorldQuaternion(new THREE.Quaternion());
+            // Weltrotation der Gun → Flugrichtung vorne (-Z)
+            quat = gun.getWorldQuaternion(new THREE.Quaternion());
+          } else {
+            // Fallback: Controller-Transform
+            origin = ctrl.getWorldPosition(new THREE.Vector3());
+            quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
+          }
+
+          // Richtung aus Weltrotation ableiten
+          const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
+
+          // Projektil erzeugen
+          const bullet = acquireBullet(w.radius, w.color);
+
+          // Leichter Vorversatz entlang der Richtung, um Clipping zu vermeiden
+          const spawnPos = origin.clone().addScaledVector(dir, SPAWN_EPS);
+
+          bullet.position.copy(spawnPos);
+          bullet.quaternion.copy(quat);
+          bullet.velocity = dir.multiplyScalar(w.speed);
+          bullet.lifeTime = BULLET_LIFETIME;
+
+          scene.add(bullet);
+          bullets.push(bullet);
+
+          if (w.ammo > 0) {
+            fireCooldown = 1 / w.fireRate;
+          } else {
+            reload();
+          }
         } else {
-          // Fallback: Controller-Transform
-          origin = ctrl.getWorldPosition(new THREE.Vector3());
-          quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
-        }
-
-        // Richtung aus Weltrotation ableiten
-        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
-
-        // Projektil erzeugen
-        const bullet = acquireBullet(w.radius, w.color);
-
-        // Leichter Vorversatz entlang der Richtung, um Clipping zu vermeiden
-        const spawnPos = origin.clone().addScaledVector(dir, SPAWN_EPS);
-
-        bullet.position.copy(spawnPos);
-        bullet.quaternion.copy(quat);
-        bullet.velocity = dir.multiplyScalar(w.speed);
-
-        scene.add(bullet);
-        bullets.push(bullet);
-
-        if (w.ammo > 0) {
           fireCooldown = 1 / w.fireRate;
-        } else {
-          reload();
         }
       } else {
         reload();
@@ -171,6 +178,14 @@ export function createCombat(scene, player, staticColliders, enemies) {
 
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
+
+      b.lifeTime -= dt;
+      if (b.lifeTime <= 0) {
+        scene.remove(b);
+        releaseBullet(b);
+        bullets.splice(i, 1);
+        continue;
+      }
 
       // Integrationsschritt
       const step = b.velocity.clone().multiplyScalar(dt);
