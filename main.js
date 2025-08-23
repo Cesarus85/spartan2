@@ -5,7 +5,7 @@ import { createPlayer } from './player.js';
 import { createCombat } from './combat.js';
 import { createHUD } from './hud.js';
 import { Enemy } from './enemy.js';
-import { initKeyboard, initOverlay, readXRInput, getInputState, settings } from './input.js';
+import { initKeyboard, initOverlay, readXRInput, readKeyboard, getInputState, settings } from './input.js';
 
 // Scene/Renderer
 const scene = new THREE.Scene();
@@ -134,6 +134,7 @@ function onRenderFrame() {
   const dt = Math.min(rawDt, 0.25);
 
   onXRFrame();
+  readKeyboard();
 
   accumulator += dt;
   let steps = 0;
