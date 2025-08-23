@@ -115,18 +115,40 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
 }
 
 // --- XR Input Reading --------------------------------------------------------
-function getButtonIndices(gamepad, handedness) {
+function getButtonIndices(gamepad, handedness, profiles = []) {
   const len = gamepad?.buttons?.length ?? 0;
   const mapping = gamepad?.mapping;
   if (len === 0) {
     return { primary: null, secondary: null };
   }
-  if (mapping === 'xr-standard' || len > 4) {
-    return { primary: 4, secondary: 5 };
+
+  let primary, secondary;
+
+  // Explicit controller profiles
+  if (profiles.includes('oculus-touch')) {
+    // A/B or X/Y are at 4 and 5 on Touch controllers
+    primary = 4;
+    secondary = 5;
+  } else if (profiles.some((p) => p.includes('vive'))) {
+    // Vive wands: use trackpad click and menu button as defaults
+    primary = 0;
+    secondary = 3;
+  } else if (mapping === 'xr-standard' || len > 4) {
+    primary = 4;
+    secondary = 5;
+  } else if (handedness === 'left') {
+    primary = 2;
+    secondary = 3;
+  } else {
+    primary = 0;
+    secondary = 1;
   }
-  return handedness === 'left'
-    ? { primary: 2, secondary: 3 }
-    : { primary: 0, secondary: 1 };
+
+  // Fallback if indices exceed available buttons
+  if (primary >= len) primary = null;
+  if (secondary >= len) secondary = null;
+
+  return { primary, secondary };
 }
 
 export function readXRInput(session) {
@@ -135,13 +157,21 @@ export function readXRInput(session) {
 
   const sources = session.inputSources || [];
   let left = null, right = null;
+  let leftProfiles = [], rightProfiles = [];
 
   for (const src of sources) {
     const gp = src.gamepad;
     if (!gp) continue;
     const handed = src.handedness || 'unknown';
-    if (handed === 'left') left = gp;
-    if (handed === 'right') right = gp;
+    const profiles = src.profiles || [];
+    if (handed === 'left') {
+      left = gp;
+      leftProfiles = profiles;
+    }
+    if (handed === 'right') {
+      right = gp;
+      rightProfiles = profiles;
+    }
   }
 
   // Move vom linken Thumbstick (Fallbacks für verschiedene Browser/Profile)
@@ -177,8 +207,8 @@ export function readXRInput(session) {
     return !!(gamepad && gamepad.buttons && gamepad.buttons[index] && gamepad.buttons[index].pressed);
   };
 
-  const leftIdx = getButtonIndices(left, 'left');
-  const rightIdx = getButtonIndices(right, 'right');
+  const leftIdx = getButtonIndices(left, 'left', leftProfiles);
+  const rightIdx = getButtonIndices(right, 'right', rightProfiles);
 
   // Linker Controller: X = Jump, Y = Reload
   if (left && leftIdx.primary !== null) {
