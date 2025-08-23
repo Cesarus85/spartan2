@@ -1,7 +1,7 @@
 // combat.js
 import { THREE } from './deps.js';
 
-export function createCombat(scene, player, staticColliders) {
+export function createCombat(scene, player, staticColliders, enemies) {
   // Waffen-Setups
   const weapons = [
     { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10 },
@@ -101,6 +101,7 @@ export function createCombat(scene, player, staticColliders) {
 
     // --- Bewegung + sehr einfacher Kollisionscheck via Ray ------------------------------------------------
     const staticObjs = staticColliders.map(e => e.obj);
+    const enemyObjs = enemies.map(e => e.mesh);
 
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
@@ -115,9 +116,15 @@ export function createCombat(scene, player, staticColliders) {
       const ray = new THREE.Raycaster(from, rayDir);
       ray.far = step.length() + 0.05;
 
-      const hits = ray.intersectObjects(staticObjs, true);
+      const hits = ray.intersectObjects(staticObjs.concat(enemyObjs), true);
       if (hits.length) {
-        // Treffer: Projektil entfernen und in Pool zurück
+        const hit = hits[0];
+        // Gegner-Treffer prüfen
+        const enemy = hit.object.userData.enemy;
+        if (enemy) {
+          enemy.takeDamage(1);
+        }
+        // Projektil entfernen und in Pool zurück
         scene.remove(b);
         releaseBullet(b);
         bullets.splice(i, 1);

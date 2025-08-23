@@ -3,6 +3,7 @@ import { THREE, VRButton } from './deps.js';
 import { FOG, buildLevel } from './level.js';
 import { createPlayer } from './player.js';
 import { createCombat } from './combat.js';
+import { Enemy } from './enemy.js';
 import { initKeyboard, initOverlay, readXRInput, getInputState, settings } from './input.js';
 
 // Scene/Renderer
@@ -30,8 +31,22 @@ scene.add(player.group);
 // Gun vor Start an aktuell gewählte Hand hängen
 player.attachGunTo(settings.weaponHand);
 
+// Gegner-Liste
+const enemies = [];
+
 // Combat system
-const combat = createCombat(scene, player, staticColliders);
+const combat = createCombat(scene, player, staticColliders, enemies);
+
+function spawnEnemy() {
+  const pos = new THREE.Vector3(
+    (Math.random() - 0.5) * 10,
+    0,
+    (Math.random() - 0.5) * 10
+  );
+  enemies.push(new Enemy(scene, pos));
+}
+
+let enemySpawnTimer = 0;
 
 // Keyboard & Overlay
 initKeyboard();
@@ -104,6 +119,20 @@ function onRenderFrame() {
       settings.snapAngleDeg
     );
     combat.update(FIXED_DT, input, settings);
+
+    // Gegner-Spawn & Updates
+    enemySpawnTimer -= FIXED_DT;
+    if (enemySpawnTimer <= 0) {
+      spawnEnemy();
+      enemySpawnTimer = 5;
+    }
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      e.update(FIXED_DT);
+      if (!e.alive) {
+        enemies.splice(i, 1);
+      }
+    }
 
     accumulator -= FIXED_DT;
     steps++;
