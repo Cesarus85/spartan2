@@ -144,8 +144,6 @@ export function readXRInput(session) {
     if (handed === 'right') right = gp;
   }
 
-  console.log(left?.buttons, right?.buttons);
-
   // Move vom linken Thumbstick (Fallbacks für verschiedene Browser/Profile)
   if (left) {
     const ax = left.axes;
