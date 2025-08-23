@@ -53,6 +53,22 @@ export function createCombat(scene, player, staticColliders, enemies) {
   const BULLET_LIFETIME = 5; // seconds
   const MAX_BULLETS = 100;
 
+  const shootAudio = document.getElementById('audioShoot');
+  const hitAudio = document.getElementById('audioHit');
+  const MAX_AUDIO_DIST = 20;
+
+  function playAudio(el, pos) {
+    if (!el) return;
+    el.currentTime = 0;
+    if (pos) {
+      const dist = pos.distanceTo(player.group.position);
+      el.volume = Math.max(0, 1 - dist / MAX_AUDIO_DIST);
+    } else {
+      el.volume = 1;
+    }
+    el.play();
+  }
+
   function acquireBullet(radius, color) {
     let m = bulletPool.pop();
     if (!m) {
@@ -159,6 +175,8 @@ export function createCombat(scene, player, staticColliders, enemies) {
           scene.add(bullet);
           bullets.push(bullet);
 
+          playAudio(shootAudio, origin);
+
           if (w.ammo > 0) {
             fireCooldown = 1 / w.fireRate;
           } else {
@@ -204,6 +222,7 @@ export function createCombat(scene, player, staticColliders, enemies) {
         const enemy = hit.object.userData.enemy;
         if (enemy) {
           enemy.takeDamage(1);
+          playAudio(hitAudio, hit.point);
         }
         // Projektil entfernen und in Pool zurück
         scene.remove(b);
