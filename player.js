@@ -1,5 +1,5 @@
 // player.js
-import { THREE } from './deps.js';
+import { THREE, GLTFLoader } from './deps.js';
 import { makeVariedStandardMaterial } from './utils.js';
 
 export function createPlayer(renderer) {
@@ -51,11 +51,16 @@ export function createPlayer(renderer) {
   group.add(ctrl0, ctrl1, grip0, grip1);
 
   // Gun
-  const gun = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.1, 0.5),
-    makeVariedStandardMaterial(0x808080)
-  );
+  const gun = new THREE.Group();
   gun.position.set(0, -0.1, -0.3);
+
+  const gltfLoader = new GLTFLoader();
+  gltfLoader.load('gewehr.glb', (gltf) => {
+    const model = gltf.scene;
+    model.scale.setScalar(0.25);
+    model.rotation.y = Math.PI / 2;
+    gun.add(model);
+  });
 
   function attachGunTo(hand) {
     gun.removeFromParent();

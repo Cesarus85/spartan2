@@ -42,7 +42,7 @@ export function createCombat(scene, player, staticColliders, enemies) {
   // --- Mündungs-Offset (lokal im Gun-Space) ---------------------------------
   // leichte Absenkung + nach vorne (Z negativ in Three.js-Konvention)
   // Feinjustage je nach Gun-Position/Skalierung möglich
-  const MUZZLE_LOCAL = new THREE.Vector3(0, -0.03, -0.28);
+  const MUZZLE_LOCAL = new THREE.Vector3(0, -0.05, -0.45);
   // optional: minimaler Vorversatz, um Selbstkollisionen/Flackern zu vermeiden
   const SPAWN_EPS = 0.02;
 
