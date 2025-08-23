@@ -8,23 +8,6 @@ export const FOG = {
   FAR: 45,
 };
 
-// Bereiche, in denen keine Gegner spawnen dürfen
-export const forbiddenZones = [
-  new THREE.Box3(new THREE.Vector3(-2.7, 0.0, -2.7), new THREE.Vector3(2.7, 4.5, 2.9)),
-  new THREE.Box3(new THREE.Vector3(-1.2, 0.0, 1.2),  new THREE.Vector3(1.2, 3.0, 4.0)),
-];
-
-// Prüft, ob ein Box3 mit einer No-Spawn-Zone kollidiert
-export const intersectsForbidden = (box) => forbiddenZones.some(f => box.intersectsBox(f));
-
-// Helfer, um eine 2D-Position grob zu validieren
-export function isValidPosition(pos, radius = 0.5) {
-  const min = new THREE.Vector3(pos.x - radius, 0, pos.z - radius);
-  const max = new THREE.Vector3(pos.x + radius, radius * 2, pos.z + radius);
-  const candidate = new THREE.Box3(min, max);
-  return !intersectsForbidden(candidate);
-}
-
 export function buildLevel(scene) {
 
     // --- Licht-Setup (leicht & Quest-tauglich) ---
@@ -99,7 +82,13 @@ export function buildLevel(scene) {
 
   scene.add(fortressGroup);
 
-  // No-Spawn-Zones sind außerhalb dieses Scopes definiert
+  // No-Spawn-Zones
+  const forbiddenZones = [
+    new THREE.Box3(new THREE.Vector3(-2.7, 0.0, -2.7), new THREE.Vector3(2.7, 4.5, 2.9)),
+    new THREE.Box3(new THREE.Vector3(-1.2, 0.0, 1.2),  new THREE.Vector3(1.2, 3.0, 4.0)),
+  ];
+
+  const intersectsForbidden = (box) => forbiddenZones.some(f => box.intersectsBox(f));
 
   // Obstacles
   for (let i = 0; i < 10; i++) {

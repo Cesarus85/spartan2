@@ -72,14 +72,7 @@ export function createPlayer(renderer) {
   let health = 100;
 
   function getHealth() { return health; }
-  function takeDamage(amount) {
-    health = Math.max(0, health - amount);
-    body.material.emissive.set(0xff0000);
-    setTimeout(() => body.material.emissive.set(0x000000), 100);
-    if (health <= 0) {
-      console.log('Game Over');
-    }
-  }
+  function takeDamage(amount) { health = Math.max(0, health - amount); }
 
   let vy = 0;
   let grounded = false;

@@ -25,9 +25,9 @@ const state = {
 };
 
 // --- Keyboard (Desktop) ------------------------------------------------------
-const down = new Set();
-
 export function initKeyboard() {
+  const down = new Set();
+
   window.addEventListener('keydown', (e) => {
     down.add(e.code);
 
@@ -48,20 +48,22 @@ export function initKeyboard() {
     down.delete(e.code);
     if (e.code === 'MouseLeft' || e.code === 'KeyF') state.fireHeld = false;
   });
-}
 
-export function readKeyboard() {
-  const x =
-    (down.has('KeyD') || down.has('ArrowRight') ? 1 : 0) -
-    (down.has('KeyA') || down.has('ArrowLeft') ? 1 : 0);
-  const y =
-    (down.has('KeyS') || down.has('ArrowDown') ? 1 : 0) -
-    (down.has('KeyW') || down.has('ArrowUp') ? 1 : 0);
-  state.moveAxis.x = x;
-  state.moveAxis.y = y;
+  function updateFromKeyboard() {
+    const x =
+      (down.has('KeyD') || down.has('ArrowRight') ? 1 : 0) -
+      (down.has('KeyA') || down.has('ArrowLeft') ? 1 : 0);
+    const y =
+      (down.has('KeyS') || down.has('ArrowDown') ? 1 : 0) -
+      (down.has('KeyW') || down.has('ArrowUp') ? 1 : 0);
+    state.moveAxis.x = x;
+    state.moveAxis.y = y;
 
-  // Q/E = smooth turn auf Desktop
-  state.turnAxis.x = (down.has('KeyE') ? 1 : 0) - (down.has('KeyQ') ? 1 : 0);
+    // Q/E = smooth turn auf Desktop
+    state.turnAxis.x = (down.has('KeyE') ? 1 : 0) - (down.has('KeyQ') ? 1 : 0);
+  }
+
+  setInterval(updateFromKeyboard, 16);
 }
 
 // --- Overlay (Start & Settings) ---------------------------------------------
@@ -115,68 +117,19 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
 }
 
 // --- XR Input Reading --------------------------------------------------------
-function getButtonIndices(gamepad, handedness, profiles = []) {
-  const len = gamepad?.buttons?.length ?? 0;
-  const mapping = gamepad?.mapping;
-  if (len === 0) {
-    return { primary: null, secondary: null };
-  }
-
-  let primary, secondary;
-
-  // Explicit controller profiles
-  if (profiles.includes('oculus-touch')) {
-    // A/B or X/Y are at 4 and 5 on Touch controllers
-    primary = 4;
-    secondary = 5;
-  } else if (profiles.some((p) => p.includes('vive'))) {
-    // Vive wands: use trackpad click and menu button as defaults
-    primary = 0;
-    secondary = 3;
-  } else if (mapping === 'xr-standard' || len > 4) {
-    primary = 4;
-    secondary = 5;
-  } else if (handedness === 'left') {
-    primary = 2;
-    secondary = 3;
-  } else {
-    primary = 0;
-    secondary = 1;
-  }
-
-  // Fallback if indices exceed available buttons
-  if (primary >= len) primary = null;
-  if (secondary >= len) secondary = null;
-
-  return { primary, secondary };
-}
-
 export function readXRInput(session) {
   // NICHT hier zurücksetzen - das passiert erst in getInputState()
   // Diese Funktion sammelt nur Input-Events
 
   const sources = session.inputSources || [];
   let left = null, right = null;
-  let leftProfiles = [], rightProfiles = [];
-
-  // Achsen auf Null zurücksetzen, damit bei fehlenden Controllern keine
-  // Werte aus dem vorherigen Frame übernommen werden
-  state.moveAxis.x = 0; state.moveAxis.y = 0;
-  state.turnAxis.x = 0; state.turnAxis.y = 0;
 
   for (const src of sources) {
     const gp = src.gamepad;
     if (!gp) continue;
     const handed = src.handedness || 'unknown';
-    const profiles = src.profiles || [];
-    if (handed === 'left') {
-      left = gp;
-      leftProfiles = profiles;
-    }
-    if (handed === 'right') {
-      right = gp;
-      rightProfiles = profiles;
-    }
+    if (handed === 'left') left = gp;
+    if (handed === 'right') right = gp;
   }
 
   // Move vom linken Thumbstick (Fallbacks für verschiedene Browser/Profile)
@@ -192,11 +145,10 @@ export function readXRInput(session) {
   if (right) {
     const ax = right.axes;
     const rx = ax[2] ?? ax[0] ?? 0;
+    state.turnAxis.x = dead(rx);
 
-    if (settings.turnMode === 'smooth') {
-      state.turnAxis.x = dead(rx);
-    } else {
-      // Snap Edge
+    // Snap Edge
+    if (settings.turnMode === 'snap') {
       const th = 0.6;
       if (state._snapReady && Math.abs(rx) > th) {
         const sign = rx > 0 ? 1 : -1;
@@ -208,49 +160,51 @@ export function readXRInput(session) {
     }
   }
 
+  // --- Button-Mapping (korrigiert für Quest Touch Controller) --------------
+  // Quest Touch Button-Layout:
+  // Linker Controller: X=4, Y=5
+  // Rechter Controller: A=4, B=5
+  
   // Hilfsfunktion für sicheren Button-Zugriff
   const isButtonPressed = (gamepad, index) => {
     return !!(gamepad && gamepad.buttons && gamepad.buttons[index] && gamepad.buttons[index].pressed);
   };
 
-  const leftIdx = getButtonIndices(left, 'left', leftProfiles);
-  const rightIdx = getButtonIndices(right, 'right', rightProfiles);
-
-  // Linker Controller: X = Jump, Y = Reload
-  if (left && leftIdx.primary !== null) {
-    const leftXNow = isButtonPressed(left, leftIdx.primary);
-    const leftYNow = isButtonPressed(left, leftIdx.secondary);
-
+  // Linker Controller: X (Index 4) = Jump, Y (Index 5) = Reload
+  if (left) {
+    const leftXNow = isButtonPressed(left, 4);  // X-Button
+    const leftYNow = isButtonPressed(left, 5);  // Y-Button
+    
     // Rising Edge Detection für X (Jump)
     if (leftXNow && !state._leftXWasDown) {
       state.jumpPressed = true;
     }
-
+    
     // Rising Edge Detection für Y (Reload)
     if (leftYNow && !state._leftYWasDown) {
       state.reloadPressed = true;
     }
-
+    
     // Latches erst am Ende des Frames updaten
     state._leftXWasDown = leftXNow;
     state._leftYWasDown = leftYNow;
   }
 
-  // Rechter Controller: A = Jump, B = Reload
-  if (right && rightIdx.primary !== null) {
-    const rightANow = isButtonPressed(right, rightIdx.primary);
-    const rightBNow = isButtonPressed(right, rightIdx.secondary);
-
+  // Rechter Controller: A (Index 4) = Jump, B (Index 5) = Reload
+  if (right) {
+    const rightANow = isButtonPressed(right, 4);  // A-Button
+    const rightBNow = isButtonPressed(right, 5);  // B-Button
+    
     // Rising Edge Detection für A (Jump)
     if (rightANow && !state._rightAWasDown) {
       state.jumpPressed = true;
     }
-
+    
     // Rising Edge Detection für B (Reload)
     if (rightBNow && !state._rightBWasDown) {
       state.reloadPressed = true;
     }
-
+    
     // Latches erst am Ende des Frames updaten
     state._rightAWasDown = rightANow;
     state._rightBWasDown = rightBNow;
