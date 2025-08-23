@@ -4,12 +4,40 @@ import { THREE } from './deps.js';
 export function createCombat(scene, player, staticColliders, enemies) {
   // Waffen-Setups
   const weapons = [
-    { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10, maxAmmo: 30 },
-    { name: 'BR', speed: 28, radius: 0.03, color: 0xff6a00, fireRate: 5,  maxAmmo: 24 },
+    {
+      name: 'AR',
+      speed: 16,
+      radius: 0.04,
+      color: 0x00ffea,
+      fireRate: 10,
+      magSize: 30,
+      ammo: 30,
+      reloadTime: 1.5,
+    },
+    {
+      name: 'BR',
+      speed: 28,
+      radius: 0.03,
+      color: 0xff6a00,
+      fireRate: 5,
+      magSize: 24,
+      ammo: 24,
+      reloadTime: 2,
+    },
+    {
+      name: 'SG',
+      speed: 20,
+      radius: 0.05,
+      color: 0xffffff,
+      fireRate: 1,
+      magSize: 8,
+      ammo: 8,
+      reloadTime: 2.5,
+    },
   ];
   let currentWeapon = 0;
   let fireCooldown = 0;
-  let ammo = weapons[currentWeapon].maxAmmo;
+  let reloading = false;
 
   // --- Mündungs-Offset (lokal im Gun-Space) ---------------------------------
   // leichte Absenkung + nach vorne (Z negativ in Three.js-Konvention)
@@ -51,63 +79,90 @@ export function createCombat(scene, player, staticColliders, enemies) {
 
   function cycleWeapon() {
     currentWeapon = (currentWeapon + 1) % weapons.length;
-    ammo = weapons[currentWeapon].maxAmmo;
+    fireCooldown = 0;
+    reloading = false;
+    if (weapons[currentWeapon].ammo <= 0) {
+      reload();
+    }
   }
 
   function reload() {
-    ammo = weapons[currentWeapon].maxAmmo;
+    const w = weapons[currentWeapon];
+    w.ammo = w.magSize;
+    fireCooldown = w.reloadTime;
+    reloading = true;
   }
 
   function getAmmo() {
-    return ammo;
+    return weapons[currentWeapon].ammo;
+  }
+
+  function getMagSize() {
+    return weapons[currentWeapon].magSize;
+  }
+
+  function isReloading() {
+    return reloading;
   }
 
   function update(dt, input, settings) {
     // Feuerrate handhaben
     fireCooldown = Math.max(0, fireCooldown - dt);
+    if (fireCooldown === 0 && reloading) {
+      reloading = false;
+    }
 
-    if (input.fireHeld && fireCooldown === 0 && ammo > 0) {
+    if (input.fireHeld && fireCooldown === 0) {
       const w = weapons[currentWeapon];
-      fireCooldown = 1 / w.fireRate;
-      ammo--;
+      if (w.ammo > 0) {
+        w.ammo--;
 
-      // Aktiver Controller gemäß Settings (handedness)
-      const ctrl = player.getController(settings.weaponHand);
+        // Aktiver Controller gemäß Settings (handedness)
+        const ctrl = player.getController(settings.weaponHand);
 
-      // --- Mündung im Waffenspace bestimmen ---------------------------------
-      // Wichtig: Wir nutzen *player.gun* (am Controller angeheftet)
-      const gun = player.gun;
+        // --- Mündung im Waffenspace bestimmen ---------------------------------
+        // Wichtig: Wir nutzen *player.gun* (am Controller angeheftet)
+        const gun = player.gun;
 
-      // Falls die Gun temporär noch nicht an der gewünschten Hand hängt,
-      // fallback auf Controller-Mitte (sollte praktisch nicht mehr vorkommen)
-      let origin, quat;
-      if (gun && gun.parent) {
-        // Weltposition der Mündung
-        origin = gun.localToWorld(MUZZLE_LOCAL.clone());
+        // Falls die Gun temporär noch nicht an der gewünschten Hand hängt,
+        // fallback auf Controller-Mitte (sollte praktisch nicht mehr vorkommen)
+        let origin, quat;
+        if (gun && gun.parent) {
+          // Weltposition der Mündung
+          origin = gun.localToWorld(MUZZLE_LOCAL.clone());
 
-        // Weltrotation der Gun → Flugrichtung vorne (-Z)
-        quat = gun.getWorldQuaternion(new THREE.Quaternion());
+          // Weltrotation der Gun → Flugrichtung vorne (-Z)
+          quat = gun.getWorldQuaternion(new THREE.Quaternion());
+        } else {
+          // Fallback: Controller-Transform
+          origin = ctrl.getWorldPosition(new THREE.Vector3());
+          quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
+        }
+
+        // Richtung aus Weltrotation ableiten
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
+
+        // Projektil erzeugen
+        const bullet = acquireBullet(w.radius, w.color);
+
+        // Leichter Vorversatz entlang der Richtung, um Clipping zu vermeiden
+        const spawnPos = origin.clone().addScaledVector(dir, SPAWN_EPS);
+
+        bullet.position.copy(spawnPos);
+        bullet.quaternion.copy(quat);
+        bullet.velocity = dir.multiplyScalar(w.speed);
+
+        scene.add(bullet);
+        bullets.push(bullet);
+
+        if (w.ammo > 0) {
+          fireCooldown = 1 / w.fireRate;
+        } else {
+          reload();
+        }
       } else {
-        // Fallback: Controller-Transform
-        origin = ctrl.getWorldPosition(new THREE.Vector3());
-        quat   = ctrl.getWorldQuaternion(new THREE.Quaternion());
+        reload();
       }
-
-      // Richtung aus Weltrotation ableiten
-      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(quat).normalize();
-
-      // Projektil erzeugen
-      const bullet = acquireBullet(w.radius, w.color);
-
-      // Leichter Vorversatz entlang der Richtung, um Clipping zu vermeiden
-      const spawnPos = origin.clone().addScaledVector(dir, SPAWN_EPS);
-
-      bullet.position.copy(spawnPos);
-      bullet.quaternion.copy(quat);
-      bullet.velocity = dir.multiplyScalar(w.speed);
-
-      scene.add(bullet);
-      bullets.push(bullet);
     }
 
     // --- Bewegung + sehr einfacher Kollisionscheck via Ray ------------------------------------------------
@@ -154,5 +209,5 @@ export function createCombat(scene, player, staticColliders, enemies) {
     }
   }
 
-  return { update, cycleWeapon, reload, getAmmo };
+  return { update, cycleWeapon, reload, getAmmo, getMagSize, isReloading };
 }
