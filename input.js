@@ -14,13 +14,14 @@ const state = {
   fireHeld: false,           // Hold
   turnSnapDeltaRad: 0,       // Edge (nur bei snap)
   cycleWeaponPressed: false, // Edge (wird nach getInputState() zurückgesetzt)
+  reloadPressed: false,      // Edge (wird nach getInputState() zurückgesetzt)
 
   _snapReady: true,
   // Separate Latches für jeden Controller und Button
   _leftXWasDown: false,      // X auf linkem Controller (Jump)
-  _leftYWasDown: false,      // Y auf linkem Controller (Weapon)
+  _leftYWasDown: false,      // Y auf linkem Controller (Reload)
   _rightAWasDown: false,     // A auf rechtem Controller (Jump)
-  _rightBWasDown: false,     // B auf rechtem Controller (Weapon)
+  _rightBWasDown: false,     // B auf rechtem Controller (Reload)
 };
 
 // --- Keyboard (Desktop) ------------------------------------------------------
@@ -37,7 +38,10 @@ export function initKeyboard() {
     if (e.code === 'MouseLeft' || e.code === 'KeyF') state.fireHeld = true;
 
     // Waffenwechsel als Edge
-    if (e.code === 'KeyB' || e.code === 'KeyR') state.cycleWeaponPressed = true;
+    if (e.code === 'KeyB') state.cycleWeaponPressed = true;
+
+    // Reload als Edge
+    if (e.code === 'KeyR') state.reloadPressed = true;
   });
 
   window.addEventListener('keyup', (e) => {
@@ -166,7 +170,7 @@ export function readXRInput(session) {
     return !!(gamepad && gamepad.buttons && gamepad.buttons[index] && gamepad.buttons[index].pressed);
   };
 
-  // Linker Controller: X (Index 4) = Jump, Y (Index 5) = Weapon
+  // Linker Controller: X (Index 4) = Jump, Y (Index 5) = Reload
   if (left) {
     const leftXNow = isButtonPressed(left, 4);  // X-Button
     const leftYNow = isButtonPressed(left, 5);  // Y-Button
@@ -176,9 +180,9 @@ export function readXRInput(session) {
       state.jumpPressed = true;
     }
     
-    // Rising Edge Detection für Y (Weapon)
+    // Rising Edge Detection für Y (Reload)
     if (leftYNow && !state._leftYWasDown) {
-      state.cycleWeaponPressed = true;
+      state.reloadPressed = true;
     }
     
     // Latches erst am Ende des Frames updaten
@@ -186,7 +190,7 @@ export function readXRInput(session) {
     state._leftYWasDown = leftYNow;
   }
 
-  // Rechter Controller: A (Index 4) = Jump, B (Index 5) = Weapon
+  // Rechter Controller: A (Index 4) = Jump, B (Index 5) = Reload
   if (right) {
     const rightANow = isButtonPressed(right, 4);  // A-Button
     const rightBNow = isButtonPressed(right, 5);  // B-Button
@@ -196,9 +200,9 @@ export function readXRInput(session) {
       state.jumpPressed = true;
     }
     
-    // Rising Edge Detection für B (Weapon)
+    // Rising Edge Detection für B (Reload)
     if (rightBNow && !state._rightBWasDown) {
-      state.cycleWeaponPressed = true;
+      state.reloadPressed = true;
     }
     
     // Latches erst am Ende des Frames updaten
@@ -228,12 +232,14 @@ export function getInputState() {
     fireHeld: state.fireHeld,                         // Hold
     turnSnapDeltaRad: settings.turnMode === 'snap' ? state.turnSnapDeltaRad : 0,
     cycleWeaponPressed: state.cycleWeaponPressed,     // Edge
+    reloadPressed: state.reloadPressed,               // Edge
   };
   
   // Edge-Flags erst NACH dem Snapshot zurücksetzen
   // Das garantiert, dass alle Update-Zyklen die Events sehen
   state.jumpPressed = false;
   state.cycleWeaponPressed = false;
+  state.reloadPressed = false;
   state.turnSnapDeltaRad = 0;
   
   return snapshot;

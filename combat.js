@@ -4,11 +4,12 @@ import { THREE } from './deps.js';
 export function createCombat(scene, player, staticColliders, enemies) {
   // Waffen-Setups
   const weapons = [
-    { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10 },
-    { name: 'BR', speed: 28, radius: 0.03, color: 0xff6a00, fireRate: 5  },
+    { name: 'AR', speed: 16, radius: 0.04, color: 0x00ffea, fireRate: 10, maxAmmo: 30 },
+    { name: 'BR', speed: 28, radius: 0.03, color: 0xff6a00, fireRate: 5,  maxAmmo: 24 },
   ];
   let currentWeapon = 0;
   let fireCooldown = 0;
+  let ammo = weapons[currentWeapon].maxAmmo;
 
   // --- Mündungs-Offset (lokal im Gun-Space) ---------------------------------
   // leichte Absenkung + nach vorne (Z negativ in Three.js-Konvention)
@@ -50,15 +51,25 @@ export function createCombat(scene, player, staticColliders, enemies) {
 
   function cycleWeapon() {
     currentWeapon = (currentWeapon + 1) % weapons.length;
+    ammo = weapons[currentWeapon].maxAmmo;
+  }
+
+  function reload() {
+    ammo = weapons[currentWeapon].maxAmmo;
+  }
+
+  function getAmmo() {
+    return ammo;
   }
 
   function update(dt, input, settings) {
     // Feuerrate handhaben
     fireCooldown = Math.max(0, fireCooldown - dt);
 
-    if (input.fireHeld && fireCooldown === 0) {
+    if (input.fireHeld && fireCooldown === 0 && ammo > 0) {
       const w = weapons[currentWeapon];
       fireCooldown = 1 / w.fireRate;
+      ammo--;
 
       // Aktiver Controller gemäß Settings (handedness)
       const ctrl = player.getController(settings.weaponHand);
@@ -143,5 +154,5 @@ export function createCombat(scene, player, staticColliders, enemies) {
     }
   }
 
-  return { update, cycleWeapon };
+  return { update, cycleWeapon, reload, getAmmo };
 }

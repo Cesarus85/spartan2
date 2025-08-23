@@ -68,6 +68,12 @@ export function createPlayer(renderer) {
   const direction = new THREE.Vector3();
   const moveSpeed = 5;
 
+  // Player status
+  let health = 100;
+
+  function getHealth() { return health; }
+  function takeDamage(amount) { health = Math.max(0, health - amount); }
+
   let vy = 0;
   let grounded = false;
   let coyoteTimer = 0;
@@ -210,6 +216,7 @@ export function createPlayer(renderer) {
     controllerLeft, controllerRight, gripLeft, gripRight,
     gun, attachGunTo,
     getController: (hand) => (hand === 'left' ? controllerLeft : controllerRight),
+    getHealth, takeDamage,
     update, onResize
   };
 }
