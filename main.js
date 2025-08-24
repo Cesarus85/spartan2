@@ -42,7 +42,7 @@ const hud = createHUD(player, combat);
 function spawnEnemy() {
   const pos = new THREE.Vector3(
     (Math.random() - 0.5) * 10,
-    0,
+    0.25,
     (Math.random() - 0.5) * 10
   );
   enemies.push(new Enemy(scene, pos));

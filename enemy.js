@@ -2,7 +2,7 @@ import { THREE } from './deps.js';
 import { PLAYFIELD_BOUNDS } from './level.js';
 
 export class Enemy {
-  constructor(scene, position = new THREE.Vector3()) {
+  constructor(scene, position = new THREE.Vector3(0, 0.25, 0)) {
     this.scene = scene;
     this.hp = 3;
     this.speed = 1;
