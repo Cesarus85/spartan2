@@ -60,7 +60,6 @@ export function createPlayer(renderer) {
     model.scale.setScalar(0.35);
     model.rotation.y = Math.PI / 2;
     model.rotation.z = Math.PI;
-    model.rotation.x = Math.PI / 2;
     gun.add(model);
   });
 
