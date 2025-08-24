@@ -58,6 +58,7 @@ export function createPlayer(renderer) {
   gltfLoader.load('gewehr.glb', (gltf) => {
     const model = gltf.scene;
     model.scale.setScalar(0.35);
+    model.rotation.x = Math.PI;
     model.rotation.y = Math.PI / 2;
     model.rotation.z = 0;
     gun.add(model);
