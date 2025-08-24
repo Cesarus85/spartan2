@@ -80,19 +80,22 @@ export class Enemy {
       const playerPos = this.player.group.position;
       this._dir.subVectors(playerPos, this.mesh.position);
       const dist = this._dir.length();
-      if (dist > 0) {
-        this._dir.normalize();
-        const move = this._dir.clone().multiplyScalar(this.speed * dt);
-        this.mesh.position.add(move);
-        this.mesh.lookAt(playerPos);
-      }
-
       if (this._damageCooldown > 0) this._damageCooldown -= dt;
       const THRESHOLD = 1.0;
       const DAMAGE = 10;
-      if (dist < THRESHOLD && this._damageCooldown <= 0) {
-        this.player.takeDamage(DAMAGE);
-        this._damageCooldown = 1.0;
+      const SIGHT_RANGE = 2.0;
+      if (dist <= SIGHT_RANGE) {
+        if (dist > 0) {
+          this._dir.normalize();
+          const move = this._dir.clone().multiplyScalar(this.speed * dt);
+          this.mesh.position.add(move);
+          this.mesh.lookAt(playerPos);
+        }
+
+        if (dist < THRESHOLD && this._damageCooldown <= 0) {
+          this.player.takeDamage(DAMAGE);
+          this._damageCooldown = 1.0;
+        }
       }
     }
   }
