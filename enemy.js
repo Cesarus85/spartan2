@@ -1,16 +1,15 @@
 import { THREE, GLTFLoader } from './deps.js';
 
 export class Enemy {
-  constructor(scene, player, position = new THREE.Vector3()) {
+  constructor(scene, position = new THREE.Vector3()) {
     this.scene = scene;
-    this.player = player;
     this.hp = 3;
     this.speed = 1;
     this.mixer = null;
     this.walkAction = null;
     this.alive = true;
     this._dir = new THREE.Vector3();
-    this._damageCooldown = 0;
+    this._changeDirTimer = 0;
     
     // Create placeholder mesh immediately
     this.mesh = new THREE.Mesh(
@@ -23,6 +22,7 @@ export class Enemy {
     
     // Load GLB model asynchronously without blocking
     this._loadModel(position);
+    this._pickDirection();
   }
 
   _loadModel(position) {
@@ -69,33 +69,30 @@ export class Enemy {
     );
   }
 
+  _pickDirection() {
+    const angle = Math.random() * Math.PI * 2;
+    this._dir.set(Math.cos(angle), 0, Math.sin(angle));
+    this._changeDirTimer = 1 + Math.random() * 2;
+  }
+
   update(dt) {
     if (!this.alive) return;
-
+    
     if (this.mixer) {
       this.mixer.update(dt);
     }
-
-    if (this.mesh && this.player) {
-      const playerPos = this.player.group.position;
-      this._dir.subVectors(playerPos, this.mesh.position);
-      const dist = this._dir.length();
-      if (this._damageCooldown > 0) this._damageCooldown -= dt;
-      const THRESHOLD = 1.0;
-      const DAMAGE = 10;
-      const SIGHT_RANGE = 2.0;
-      if (dist <= SIGHT_RANGE) {
-        if (dist > 0) {
-          this._dir.normalize();
-          const move = this._dir.clone().multiplyScalar(this.speed * dt);
-          this.mesh.position.add(move);
-          this.mesh.lookAt(playerPos);
-        }
-
-        if (dist < THRESHOLD && this._damageCooldown <= 0) {
-          this.player.takeDamage(DAMAGE);
-          this._damageCooldown = 1.0;
-        }
+    
+    this._changeDirTimer -= dt;
+    if (this._changeDirTimer <= 0) {
+      this._pickDirection();
+    }
+    
+    if (this.mesh) {
+      const move = this._dir.clone().multiplyScalar(this.speed * dt);
+      this.mesh.position.add(move);
+      
+      if (move.length() > 0) {
+        this.mesh.lookAt(this.mesh.position.clone().add(this._dir));
       }
     }
   }

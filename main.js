@@ -45,7 +45,7 @@ function spawnEnemy() {
     0,
     (Math.random() - 0.5) * 10
   );
-  enemies.push(new Enemy(scene, player, pos));
+  enemies.push(new Enemy(scene, pos));
 }
 
 let enemySpawnTimer = 0;
