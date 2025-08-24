@@ -27,9 +27,13 @@ export class Enemy {
 
   _loadModel(position) {
     const loader = new GLTFLoader();
+    console.log('Attempting to load enemy model from: ./assets/enemy1_walk1.glb');
+    
     loader.load(
-      '/assets/enemy1_walk1.glb',
+      './assets/enemy1_walk1.glb',
       (gltf) => {
+        console.log('GLB model loaded successfully:', gltf);
+        
         // Remove placeholder mesh
         this.scene.remove(this.mesh);
         
@@ -37,18 +41,28 @@ export class Enemy {
         this.mesh = gltf.scene;
         this.mesh.position.copy(position);
         this.mesh.userData.enemy = this;
+        
+        // Ensure proper scale and visibility
+        this.mesh.scale.set(1, 1, 1);
+        this.mesh.visible = true;
+        
         this.scene.add(this.mesh);
+        console.log('Enemy model added to scene');
         
         // Setup animations
         if (gltf.animations && gltf.animations.length > 0) {
+          console.log('Setting up animations:', gltf.animations.length);
           this.mixer = new THREE.AnimationMixer(this.mesh);
           this.walkAction = this.mixer.clipAction(gltf.animations[0]);
           this.walkAction.play();
         }
       },
-      undefined,
+      (progress) => {
+        console.log('Loading progress:', progress);
+      },
       (error) => {
         console.error('Failed to load enemy model:', error);
+        console.error('Error details:', error.message);
         // Keep the placeholder mesh if loading fails
       }
     );
