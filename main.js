@@ -65,13 +65,6 @@ initKeyboard();
 // VR-Button in Overlay mounten und Start-Callbacks verdrahten
 const vrBtn = VRButton.createButton(renderer);
 vrBtn.id = 'internal-vrbutton';
-vrBtn.style.display = 'inline-block';
-vrBtn.style.position = 'static';
-vrBtn.style.padding = '6px 10px';
-vrBtn.style.borderRadius = '8px';
-vrBtn.style.border = '1px solid #444';
-vrBtn.style.background = '#121212';
-vrBtn.style.color = '#fff';
 
 const { hideOverlay, onStartDesktop } = initOverlay(renderer, vrBtn, () => {
   // Wenn im Overlay die Hand gewechselt wird, sofort Gun umhängen
