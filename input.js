@@ -75,13 +75,9 @@ export function initOverlay(renderer, vrButtonEl, onSettingsChanged) {
   const btnStart = ov.querySelector('#btnStart');
   const vrMount = ov.querySelector('#vrMount');
 
-  if (vrButtonEl && navigator.xr && navigator.xr.isSessionSupported) {
-    navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
-      if (supported) {
-        vrMount.innerHTML = '';
-        vrMount.appendChild(vrButtonEl);
-      }
-    });
+  if (vrButtonEl) {
+    vrMount.innerHTML = '';
+    vrMount.appendChild(vrButtonEl);
   }
 
   turnMode.value = settings.turnMode;

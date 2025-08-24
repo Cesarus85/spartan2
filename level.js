@@ -8,14 +8,6 @@ export const FOG = {
   FAR: 45,
 };
 
-// Spielbereichsgrenzen (x und z Koordinaten)
-export const PLAYFIELD_BOUNDS = {
-  minX: -10,
-  maxX: 10,
-  minZ: -10,
-  maxZ: 10,
-};
-
 export function buildLevel(scene) {
 
   // Boden-Textur laden

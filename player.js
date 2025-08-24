@@ -142,10 +142,10 @@ export function createPlayer(renderer) {
   function update(dt, input, colliders, walkables, turnMode, snapAngleDeg) {
     // Turning
     if (turnMode === 'smooth') {
-      playerYRotation += input.turnAxis.x * 0.05;
+      playerYRotation -= input.turnAxis.x * 0.05;
     } else {
       if (input.turnSnapDeltaRad) {
-        playerYRotation += input.turnSnapDeltaRad;
+        playerYRotation -= input.turnSnapDeltaRad;
       }
     }
 

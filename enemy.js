@@ -1,12 +1,8 @@
 import { THREE } from './deps.js';
-import { PLAYFIELD_BOUNDS } from './level.js';
-
-export const ENEMY_SIZE_VECTOR = new THREE.Vector3(0.5, 0.5, 0.5);
 
 export class Enemy {
-  constructor(scene, position = new THREE.Vector3(0, 0.25, 0), colliders = []) {
+  constructor(scene, position = new THREE.Vector3()) {
     this.scene = scene;
-    this.staticColliders = colliders;
     this.hp = 3;
     this.speed = 1;
     this.mesh = new THREE.Mesh(
@@ -19,11 +15,6 @@ export class Enemy {
     this.alive = true;
     this._dir = new THREE.Vector3();
     this._changeDirTimer = 0;
-    this._velY = 0;
-    this._falling = false;
-    this._bbox = new THREE.Box3();
-    this._bboxSize = ENEMY_SIZE_VECTOR;
-    this._lastPos = this.mesh.position.clone();
     this._pickDirection();
   }
 
@@ -36,43 +27,11 @@ export class Enemy {
   update(dt) {
     if (!this.alive) return;
     this._changeDirTimer -= dt;
-
-    if (this._falling) {
-      // Apply gravity while falling
-      this._velY += -9.8 * dt;
-      this.mesh.position.y += this._velY * dt;
-      if (this.mesh.position.y < -5) {
-        this.alive = false;
-        this.scene.remove(this.mesh);
-      }
-      return;
-    }
-
     if (this._changeDirTimer <= 0) {
       this._pickDirection();
     }
     const move = this._dir.clone().multiplyScalar(this.speed * dt);
-    this._lastPos.copy(this.mesh.position);
     this.mesh.position.add(move);
-
-    this._bbox.setFromCenterAndSize(this.mesh.position, this._bboxSize);
-    for (const collider of this.staticColliders) {
-      if (this._bbox.intersectsBox(collider.box)) {
-        this.mesh.position.copy(this._lastPos);
-        this._bbox.setFromCenterAndSize(this.mesh.position, this._bboxSize);
-        this._pickDirection();
-      }
-    }
-
-    const b = PLAYFIELD_BOUNDS;
-    if (
-      this.mesh.position.x < b.minX ||
-      this.mesh.position.x > b.maxX ||
-      this.mesh.position.z < b.minZ ||
-      this.mesh.position.z > b.maxZ
-    ) {
-      this._falling = true;
-    }
   }
 
   takeDamage(amount) {
