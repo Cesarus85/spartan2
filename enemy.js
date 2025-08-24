@@ -2,8 +2,9 @@ import { THREE } from './deps.js';
 import { PLAYFIELD_BOUNDS } from './level.js';
 
 export class Enemy {
-  constructor(scene, position = new THREE.Vector3(0, 0.25, 0)) {
+  constructor(scene, position = new THREE.Vector3(0, 0.25, 0), colliders = []) {
     this.scene = scene;
+    this.staticColliders = colliders;
     this.hp = 3;
     this.speed = 1;
     this.mesh = new THREE.Mesh(
@@ -18,6 +19,9 @@ export class Enemy {
     this._changeDirTimer = 0;
     this._velY = 0;
     this._falling = false;
+    this._bbox = new THREE.Box3();
+    this._bboxSize = new THREE.Vector3(0.5, 0.5, 0.5);
+    this._lastPos = this.mesh.position.clone();
     this._pickDirection();
   }
 
@@ -46,7 +50,17 @@ export class Enemy {
       this._pickDirection();
     }
     const move = this._dir.clone().multiplyScalar(this.speed * dt);
+    this._lastPos.copy(this.mesh.position);
     this.mesh.position.add(move);
+
+    this._bbox.setFromCenterAndSize(this.mesh.position, this._bboxSize);
+    for (const collider of this.staticColliders) {
+      if (this._bbox.intersectsBox(collider.box)) {
+        this.mesh.position.copy(this._lastPos);
+        this._pickDirection();
+        break;
+      }
+    }
 
     const b = PLAYFIELD_BOUNDS;
     if (
