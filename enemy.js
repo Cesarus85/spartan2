@@ -1,6 +1,8 @@
 import { THREE } from './deps.js';
 import { PLAYFIELD_BOUNDS } from './level.js';
 
+export const ENEMY_SIZE_VECTOR = new THREE.Vector3(0.5, 0.5, 0.5);
+
 export class Enemy {
   constructor(scene, position = new THREE.Vector3(0, 0.25, 0), colliders = []) {
     this.scene = scene;
@@ -20,7 +22,7 @@ export class Enemy {
     this._velY = 0;
     this._falling = false;
     this._bbox = new THREE.Box3();
-    this._bboxSize = new THREE.Vector3(0.5, 0.5, 0.5);
+    this._bboxSize = ENEMY_SIZE_VECTOR;
     this._lastPos = this.mesh.position.clone();
     this._pickDirection();
   }
