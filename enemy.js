@@ -27,10 +27,11 @@ export class Enemy {
 
   _loadModel(position) {
     const loader = new GLTFLoader();
-    console.log('Attempting to load enemy model from: ./assets/enemy1_walk1.glb');
-    
+    const modelUrl = new URL('./assets/enemy1_walk1.glb', import.meta.url).href;
+    console.log('Attempting to load enemy model from:', modelUrl);
+
     loader.load(
-      './assets/enemy1_walk1.glb',
+      modelUrl,
       (gltf) => {
         console.log('GLB model loaded successfully:', gltf);
         
