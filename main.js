@@ -4,7 +4,7 @@ import { FOG, buildLevel } from './level.js';
 import { createPlayer } from './player.js';
 import { createCombat } from './combat.js';
 import { createHUD } from './hud.js';
-import { Enemy } from './enemy.js';
+import { Enemy, sampleGroundHeight, ENEMY_HEIGHT_OFFSET } from './enemy.js';
 import { initKeyboard, initOverlay, readXRInput, getInputState, settings } from './input.js';
 
 // Scene/Renderer
@@ -45,7 +45,9 @@ function spawnEnemy() {
     0,
     (Math.random() - 0.5) * 10
   );
-  enemies.push(new Enemy(scene, pos));
+  const groundY = sampleGroundHeight(pos, walkableMeshes);
+  if (groundY != null) pos.y = groundY + ENEMY_HEIGHT_OFFSET;
+  enemies.push(new Enemy(scene, pos, walkableMeshes));
 }
 
 let enemySpawnTimer = 0;

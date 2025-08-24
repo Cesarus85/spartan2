@@ -1,8 +1,23 @@
 import { THREE, GLTFLoader } from './deps.js';
 
+const downRay = new THREE.Raycaster();
+const downDir = new THREE.Vector3(0, -1, 0);
+
+export const ENEMY_HEIGHT_OFFSET = 0.25;
+
+export function sampleGroundHeight(pos, walkables) {
+  downRay.set(new THREE.Vector3(pos.x, pos.y + 0.5, pos.z), downDir);
+  downRay.far = 3.0;
+  const hits = downRay.intersectObjects(walkables, true);
+  if (!hits.length) return null;
+  return hits[0].point.y;
+}
+
 export class Enemy {
-  constructor(scene, position = new THREE.Vector3()) {
+  constructor(scene, position = new THREE.Vector3(), walkableMeshes = []) {
     this.scene = scene;
+    this.walkableMeshes = walkableMeshes;
+    this.heightOffset = ENEMY_HEIGHT_OFFSET;
     this.hp = 3;
     this.speed = 1;
     this.mixer = null;
@@ -17,11 +32,13 @@ export class Enemy {
       new THREE.MeshStandardMaterial({ color: 0xff0000 })
     );
     this.mesh.position.copy(position);
+    const groundY = sampleGroundHeight(this.mesh.position, this.walkableMeshes);
+    if (groundY != null) this.mesh.position.y = groundY + this.heightOffset;
     this.mesh.userData.enemy = this;
     this.scene.add(this.mesh);
     
     // Load GLB model asynchronously without blocking
-    this._loadModel(position);
+    this._loadModel(this.mesh.position.clone());
     this._pickDirection();
   }
 
@@ -90,7 +107,10 @@ export class Enemy {
     if (this.mesh) {
       const move = this._dir.clone().multiplyScalar(this.speed * dt);
       this.mesh.position.add(move);
-      
+
+      const groundY = sampleGroundHeight(this.mesh.position, this.walkableMeshes);
+      if (groundY != null) this.mesh.position.y = groundY + this.heightOffset;
+
       if (move.length() > 0) {
         this.mesh.lookAt(this.mesh.position.clone().add(this._dir));
       }
