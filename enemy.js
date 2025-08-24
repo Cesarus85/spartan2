@@ -10,7 +10,12 @@ export class Enemy {
     this.alive = true;
     this._dir = new THREE.Vector3();
     this._changeDirTimer = 0;
-    
+    this.heightOffset = 0;
+
+    // Ray for ground sampling
+    this._groundRay = new THREE.Raycaster();
+    this._groundDir = new THREE.Vector3(0, -1, 0);
+
     // Create placeholder mesh immediately
     this.mesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.5, 0.5),
@@ -19,7 +24,13 @@ export class Enemy {
     this.mesh.position.copy(position);
     this.mesh.userData.enemy = this;
     this.scene.add(this.mesh);
-    
+
+    // Stick to ground at start
+    const groundY = this._sampleGroundHeight(this.mesh.position);
+    if (groundY != null) {
+      this.mesh.position.y = groundY + this.heightOffset;
+    }
+
     // Load GLB model asynchronously without blocking
     this._loadModel(position);
     this._pickDirection();
@@ -46,10 +57,22 @@ export class Enemy {
         // Ensure proper scale and visibility
         this.mesh.scale.set(1, 1, 1);
         this.mesh.visible = true;
-        
+
         this.scene.add(this.mesh);
         console.log('Enemy model added to scene');
-        
+
+        // Compute height offset from bounding box
+        const bbox = new THREE.Box3().setFromObject(this.mesh);
+        const size = new THREE.Vector3();
+        bbox.getSize(size);
+        this.heightOffset = size.y / 2;
+
+        // Re-apply ground height with new offset
+        const groundY = this._sampleGroundHeight(this.mesh.position);
+        if (groundY != null) {
+          this.mesh.position.y = groundY + this.heightOffset;
+        }
+
         // Setup animations
         if (gltf.animations && gltf.animations.length > 0) {
           console.log('Setting up animations:', gltf.animations.length);
@@ -90,11 +113,29 @@ export class Enemy {
     if (this.mesh) {
       const move = this._dir.clone().multiplyScalar(this.speed * dt);
       this.mesh.position.add(move);
-      
+
       if (move.length() > 0) {
         this.mesh.lookAt(this.mesh.position.clone().add(this._dir));
       }
+
+      // Keep enemy grounded
+      const groundY = this._sampleGroundHeight(this.mesh.position);
+      if (groundY != null) {
+        this.mesh.position.y = groundY + this.heightOffset;
+      }
     }
+  }
+
+  _sampleGroundHeight(pos) {
+    const origin = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
+    this._groundRay.set(origin, this._groundDir);
+    this._groundRay.far = 10;
+    const hits = this._groundRay.intersectObjects(this.scene.children, true);
+    for (const hit of hits) {
+      if (hit.object.userData.enemy === this) continue;
+      return hit.point.y;
+    }
+    return null;
   }
 
   takeDamage(amount) {
