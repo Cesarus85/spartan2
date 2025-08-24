@@ -4,7 +4,7 @@ import { FOG, buildLevel } from './level.js';
 import { createPlayer } from './player.js';
 import { createCombat } from './combat.js';
 import { createHUD } from './hud.js';
-import { Enemy } from './enemy.js';
+import { Enemy, ENEMY_SIZE_VECTOR } from './enemy.js';
 import { initKeyboard, initOverlay, readXRInput, getInputState, settings } from './input.js';
 
 // Scene/Renderer
@@ -40,12 +40,21 @@ const combat = createCombat(scene, player, staticColliders, enemies);
 const hud = createHUD(player, combat);
 
 function spawnEnemy() {
-  const pos = new THREE.Vector3(
-    (Math.random() - 0.5) * 10,
-    0.25,
-    (Math.random() - 0.5) * 10
+  const pos = new THREE.Vector3();
+  const tmpBox = new THREE.Box3();
+  do {
+    pos.set(
+      (Math.random() - 0.5) * 10,
+      0.25,
+      (Math.random() - 0.5) * 10
+    );
+    tmpBox.setFromCenterAndSize(pos, ENEMY_SIZE_VECTOR);
+  } while (
+    staticColliders.some(
+      (c) => c.box.min.y !== c.box.max.y && tmpBox.intersectsBox(c.box)
+    )
   );
-  enemies.push(new Enemy(scene, pos, staticColliders));
+  enemies.push(new Enemy(scene, pos.clone(), staticColliders));
 }
 
 let enemySpawnTimer = 0;
