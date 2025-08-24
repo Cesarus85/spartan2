@@ -10,7 +10,12 @@ export const FOG = {
 
 export function buildLevel(scene) {
 
-    // --- Licht-Setup (leicht & Quest-tauglich) ---
+  // Boden-Textur laden
+  const groundTex = new THREE.TextureLoader().load('./textures/floor.png');
+  groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
+  groundTex.repeat.set(10, 10);
+
+  // --- Licht-Setup (leicht & Quest-tauglich) ---
   const hemi = new THREE.HemisphereLight(0x9ec9ff, 0x2f1f0f, 0.55); // Himmel / Boden, weiches Ambient
   scene.add(hemi);
 
@@ -36,7 +41,7 @@ export function buildLevel(scene) {
   groundGeo.attributes.position.needsUpdate = true;
   groundGeo.computeVertexNormals();
 
-  const groundMat = makeVariedStandardMaterial(0x8B4513);
+  const groundMat = new THREE.MeshStandardMaterial({ map: groundTex });
   groundMat.side = THREE.DoubleSide;
   const ground = new THREE.Mesh(groundGeo, groundMat);
   scene.add(ground);
