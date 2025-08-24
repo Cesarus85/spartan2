@@ -57,8 +57,8 @@ export class Enemy {
     for (const collider of this.staticColliders) {
       if (this._bbox.intersectsBox(collider.box)) {
         this.mesh.position.copy(this._lastPos);
+        this._bbox.setFromCenterAndSize(this.mesh.position, this._bboxSize);
         this._pickDirection();
-        break;
       }
     }
 
